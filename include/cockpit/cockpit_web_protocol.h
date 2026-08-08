@@ -9,7 +9,7 @@
 
 namespace cockpit_web {
 
-// Web 车辆选择命令，不包含 G29 输入
+// Web 车辆选择命令，不包含设备输入
 enum class CommandType {
   UNKNOWN,          // 无法识别或格式非法
   SELECT_VEHICLE,   // 选择指定车辆

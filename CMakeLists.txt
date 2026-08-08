@@ -55,22 +55,8 @@ target_link_libraries(cockpit_core PUBLIC
     cockpit_protocol
 )
 
-add_library(g29_simulator_core
-    src/simulation/g29_simulator.cpp
-    src/simulation/input_device_simulator.cpp
-    src/simulation/virtual_g29_report.cpp
-)
-
-target_include_directories(g29_simulator_core PUBLIC
-    include
-)
-target_link_libraries(g29_simulator_core PUBLIC cockpit_common)
-
 add_executable(cockpit apps/main.cpp)
 target_link_libraries(cockpit PRIVATE cockpit_core)
-
-add_executable(g29_simulator apps/g29_simulator_main.cpp)
-target_link_libraries(g29_simulator PRIVATE g29_simulator_core)
 
 if(BUILD_TESTING)
   add_executable(input_pipeline_test
@@ -116,9 +102,4 @@ if(BUILD_TESTING)
   target_link_libraries(input_device_reader_test PRIVATE cockpit_devices)
   add_test(NAME input_device_reader_test COMMAND input_device_reader_test)
 
-  add_executable(virtual_g29_report_test
-      tests/simulation/virtual_g29_report_test.cpp
-  )
-  target_link_libraries(virtual_g29_report_test PRIVATE g29_simulator_core)
-  add_test(NAME virtual_g29_report_test COMMAND virtual_g29_report_test)
 endif()
