@@ -7,7 +7,7 @@
 #include <cassert>
 #include <cstring>
 
-#include "protocol/binary_codec.h"
+#include "protocol/udp_protocol.h"
 
 namespace {
 
@@ -50,14 +50,13 @@ int main() {
   UdpDatagram datagram;
   assert(receiver_channel.receive(datagram));
 
-  RemoteCtlCmd decoded{};
-  std::uint32_t decoded_sequence = 0;
-  assert(remote_protocol::decodeControlCommand(datagram.payload.data(),
-                                               datagram.payload.size(), decoded,
-                                               decoded_sequence));
-  assert(decoded_sequence == 1);
-  assert(decoded.remoteMode == RemoteMode::REMOTE_ENTER);
-  assert(decoded.steering_angle == 12.5);
+  const auto decoded = remote_protocol::decodePacket(datagram.payload.data(),
+                                                     datagram.payload.size());
+  assert(decoded);
+  assert(decoded->body == remote_protocol::PacketBody::CONTROL_CMD);
+  assert(decoded->sequence == 1);
+  assert(decoded->control.remoteMode == RemoteMode::REMOTE_ENTER);
+  assert(decoded->control.steering_angle == 12.5);
 
   // 后续发送沿用同一发送器并递增控制序号
   const auto second_sequence = sender.send(command, destination);

@@ -5,19 +5,26 @@ project(remote_drive_cockpit LANGUAGES CXX)
 include(CTest)
 
 find_package(OpenSSL REQUIRED)
+find_package(Protobuf REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/remote_drive.proto)
+
 add_library(cockpit_protocol
-    src/protocol/binary_codec.cpp
+    ${PROTO_SRCS}
+    src/protocol/udp_protocol.cpp
 )
 
 target_include_directories(cockpit_protocol PUBLIC
     include
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${Protobuf_INCLUDE_DIRS}
 )
+target_link_libraries(cockpit_protocol PUBLIC ${Protobuf_LIBRARIES})
 
 add_library(cockpit_common
     src/common/websocket_server.cpp

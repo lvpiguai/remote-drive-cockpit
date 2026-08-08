@@ -44,11 +44,11 @@ private:
   void receiveVehiclePackets();
 
   // 处理车辆心跳
-  void handleHeartbeat(const std::uint8_t *data, std::size_t size,
+  void handleHeartbeat(const std::string &vehicle_id, std::uint32_t sequence,
                        const sockaddr_in &source);
 
   // 处理车辆状态
-  void handleState(const std::uint8_t *data, std::size_t size,
+  void handleState(const RemoteDrivingState &state, std::uint32_t sequence,
                    const sockaddr_in &source);
 
   // 接收 Web 页面的车辆选择消息

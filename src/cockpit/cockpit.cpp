@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "cockpit/cockpit_web_protocol.h"
-#include "protocol/binary_codec.h"
+#include "protocol/udp_protocol.h"
 
 namespace {
 
@@ -147,44 +147,31 @@ bool Cockpit::initialize() {
 void Cockpit::receiveVehiclePackets() {
   UdpDatagram datagram;
   while (vehicle_channel_.receive(datagram)) {
-    const auto type = remote_protocol::decodeMessageType(
+    const auto packet = remote_protocol::decodePacket(
         datagram.payload.data(), datagram.payload.size());
-    if (!type)
+    if (!packet)
       continue;
-    if (*type == MsgType::HEARTBEAT) {
-      handleHeartbeat(datagram.payload.data(), datagram.payload.size(),
-                      datagram.source);
-    } else if (*type == MsgType::VEHICLE_STATE) {
-      handleState(datagram.payload.data(), datagram.payload.size(),
-                  datagram.source);
+    if (packet->body == remote_protocol::PacketBody::HEARTBEAT) {
+      handleHeartbeat(packet->vehicle_id, packet->sequence, datagram.source);
+    } else if (packet->body == remote_protocol::PacketBody::VEHICLE_STATE) {
+      handleState(packet->state, packet->sequence, datagram.source);
     }
   }
 }
 
 // 更新车辆心跳
-void Cockpit::handleHeartbeat(const std::uint8_t *data, std::size_t size,
+void Cockpit::handleHeartbeat(const std::string &vehicle_id,
+                              std::uint32_t sequence,
                               const sockaddr_in &source) {
-  // 解析车辆标识和心跳序号
-  HeartbeatPayload heartbeat{};
-  std::uint32_t sequence = 0;
-  if (!remote_protocol::decodeHeartbeat(data, size, heartbeat, sequence)) {
-    return;
-  }
-  const std::string id(heartbeat.vehicle_id);
-
   // 仅接受指定车辆的新心跳，在线状态由周期快照统一推送
-  heartbeat_cache_.updateHeartbeat(id, source, sequence);
+  heartbeat_cache_.updateHeartbeat(vehicle_id, source, sequence);
 }
 
 // 解码并更新对应车辆的最新状态
-void Cockpit::handleState(const std::uint8_t *data, std::size_t size,
+void Cockpit::handleState(const RemoteDrivingState &state,
+                          std::uint32_t sequence,
                           const sockaddr_in &source) {
   // 校验协议、车辆归属和通信地址
-  RemoteDrivingState state{};
-  std::uint32_t sequence = 0;
-  if (!remote_protocol::decodeDrivingState(data, size, state, sequence)) {
-    return;
-  }
   const std::string vehicle_id(state.vehicle_id);
   if (!heartbeat_cache_.matchesEndpoint(vehicle_id, source))
     return;
