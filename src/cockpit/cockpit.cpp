@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "cockpit/cockpit_web_protocol.h"
-#include "protocol/udp_protocol.h"
+#include "protocol/udp_codec.h"
 
 namespace {
 
@@ -153,7 +153,7 @@ bool Cockpit::initialize() {
 void Cockpit::receiveVehiclePackets() {
   UdpDatagram datagram;
   while (vehicle_channel_.receive(datagram)) {
-    const auto packet = remote_protocol::decodePacket(
+    const auto packet = udp_codec::decodePacket(
         datagram.payload.data(), datagram.payload.size());
     if (!packet)
       continue;

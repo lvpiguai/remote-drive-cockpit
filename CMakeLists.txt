@@ -16,7 +16,7 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/remote_drive.proto)
 
 add_library(cockpit_protocol
     ${PROTO_SRCS}
-    src/protocol/udp_protocol.cpp
+    src/protocol/udp_codec.cpp
 )
 
 target_include_directories(cockpit_protocol PUBLIC

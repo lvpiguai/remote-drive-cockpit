@@ -6,7 +6,7 @@
 
 #include <cassert>
 
-#include "protocol/udp_protocol.h"
+#include "protocol/udp_codec.h"
 
 namespace {
 
@@ -51,8 +51,8 @@ int main() {
   UdpDatagram datagram;
   assert(receiver_channel.receive(datagram));
 
-  const auto decoded = remote_protocol::decodePacket(datagram.payload.data(),
-                                                     datagram.payload.size());
+  const auto decoded = udp_codec::decodePacket(datagram.payload.data(),
+                                               datagram.payload.size());
   assert(decoded);
   assert(decoded->body_case() == pb::UdpPacket::kControl);
   assert(decoded->sequence() == 1);
