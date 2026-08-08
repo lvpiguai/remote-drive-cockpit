@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "cockpit/vehicle_online_status.h"
-#include "protocol/remote_control_protocol.h"
+#include "remote_drive.pb.h"
 
 namespace cockpit_web {
 
@@ -26,11 +26,11 @@ struct Command {
 Command parseCommand(const std::string &message);
 
 // 序列化 Web 展示数据
-std::string serializeControlCommand(const RemoteCtlCmd &command,
-                                    std::uint32_t sequence,
-                                    const std::string &vehicle_id);
-std::string serializeVehicleState(const RemoteDrivingState &state,
-                                  std::uint32_t sequence);
+std::string serializeControlCommand(
+    const remote_drive::protocol::RemoteDriveControlCommand &command,
+    std::uint32_t sequence, const std::string &vehicle_id);
+std::string serializeVehicleState(
+    const remote_drive::protocol::ChassisState &state, std::uint32_t sequence);
 std::string
 serializeVehicleStatusList(const std::vector<VehicleOnlineStatus> &vehicles,
                            const std::string &selected_vehicle_id,

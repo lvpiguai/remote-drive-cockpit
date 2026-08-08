@@ -5,11 +5,11 @@
 #include <string>
 #include <unordered_map>
 
-#include "protocol/remote_control_protocol.h"
+#include "remote_drive.pb.h"
 
 // 单台车辆最近一次合法状态及其接收时间
 struct VehicleStateRecord {
-  RemoteDrivingState state{};
+  remote_drive::protocol::ChassisState state{};
   std::uint32_t sequence = 0;
   std::chrono::steady_clock::time_point last_update_time{};
 };
@@ -18,7 +18,8 @@ struct VehicleStateRecord {
 class VehicleStateCache {
 public:
   // 保存指定车辆的最新状态记录
-  void update(const std::string &vehicle_id, const RemoteDrivingState &state,
+  void update(const std::string &vehicle_id,
+              const remote_drive::protocol::ChassisState &state,
               std::uint32_t sequence);
 
   // 查找指定车辆的最新状态记录

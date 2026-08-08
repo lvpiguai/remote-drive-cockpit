@@ -4,6 +4,8 @@
 
 namespace {
 
+namespace pb = remote_drive::protocol;
+
 // 控制规则参数
 constexpr double kMaxSteeringDegrees = 90.0;
 constexpr double kGearShiftBrakeThreshold = 0.20;
@@ -33,31 +35,39 @@ bool povRight(PovDirection pov) {
 }
 
 // 将布尔目标转换为三态开关指令
-SwitchCommand switchCommand(bool enabled) {
-  return enabled ? SwitchCommand::ON : SwitchCommand::OFF;
+pb::SwitchCommand switchCommand(bool enabled) {
+  return enabled ? pb::SWITCH_ON : pb::SWITCH_OFF;
 }
 
 // 计算三态指令对应的目标开关状态
-bool requestedState(SwitchCommand command, bool actual_state) {
-  if (command == SwitchCommand::ON) return true;
-  if (command == SwitchCommand::OFF) return false;
+bool requestedState(pb::SwitchCommand command, bool actual_state) {
+  if (command == pb::SWITCH_ON)
+    return true;
+  if (command == pb::SWITCH_OFF)
+    return false;
   return actual_state;
 }
 
 // 基于实际状态切换目标开关指令
-void toggleSwitch(SwitchCommand &command, bool actual_state) {
-  command = switchCommand(!requestedState(command, actual_state));
+pb::SwitchCommand toggleSwitch(pb::SwitchCommand command, bool actual_state) {
+  return switchCommand(!requestedState(command, actual_state));
 }
 
 // 实际状态确认后清除待发送开关指令
-void clearConfirmedSwitch(SwitchCommand &command, bool actual_state) {
-  if ((command == SwitchCommand::ON && actual_state) ||
-      (command == SwitchCommand::OFF && !actual_state)) {
-    command = SwitchCommand::NO_CTL;
+pb::SwitchCommand clearConfirmedSwitch(pb::SwitchCommand command,
+                                       bool actual_state) {
+  if ((command == pb::SWITCH_ON && actual_state) ||
+      (command == pb::SWITCH_OFF && !actual_state)) {
+    return pb::SWITCH_NO_CONTROL;
   }
+  return command;
 }
 
-}  // namespace
+} // namespace
+
+ControlCommandGenerator::ControlCommandGenerator() {
+  actual_state_.set_parking(true);
+}
 
 // 消费新输入并更新边沿和按住状态
 void ControlCommandGenerator::updateInput(
@@ -97,8 +107,10 @@ void ControlCommandGenerator::updateInput(
 }
 
 // 基于最新输入和当前时间生成待发送指令
-RemoteCtlCmd ControlCommandGenerator::generate(Clock::time_point now) {
-  if (!has_input_) return command_;
+pb::RemoteDriveControlCommand
+ControlCommandGenerator::generate(Clock::time_point now) {
+  if (!has_input_)
+    return command_;
 
   updateContinuousControls();
   updateBucket();
@@ -106,12 +118,14 @@ RemoteCtlCmd ControlCommandGenerator::generate(Clock::time_point now) {
   // 一次按住只能触发一次驻车或急停切换
   if (parking_holding_ && !parking_action_done_ &&
       now - parking_hold_start_ >= kHoldDuration) {
-    toggleSwitch(command_.parking, actual_state_.parking);
+    command_.set_parking(
+        toggleSwitch(command_.parking(), actual_state_.parking()));
     parking_action_done_ = true;
   }
   if (emergency_holding_ && !emergency_action_done_ &&
       now - emergency_hold_start_ >= kHoldDuration) {
-    toggleSwitch(command_.remote_emergency, actual_state_.emergency);
+    command_.set_remote_emergency(
+        toggleSwitch(command_.remote_emergency(), actual_state_.emergency()));
     emergency_action_done_ = true;
   }
 
@@ -119,44 +133,57 @@ RemoteCtlCmd ControlCommandGenerator::generate(Clock::time_point now) {
 }
 
 // 保存车辆实际状态
-void ControlCommandGenerator::syncVehicleState(const RemoteDrivingState &state) {
-  // 保存最新车辆状态
+void ControlCommandGenerator::syncVehicleState(const pb::ChassisState &state) {
   actual_state_ = state;
   has_actual_state_ = true;
 
   // 状态确认后停止重复发送模式切换
   const bool enter_confirmed =
-      command_.remoteMode == RemoteMode::REMOTE_ENTER &&
-      state.remoteMode == DriveMode::REMOTE;
+      command_.remote_mode() == pb::REMOTE_MODE_ENTER &&
+      state.drive_mode() == pb::DRIVE_MODE_REMOTE;
   const bool exit_confirmed =
-      command_.remoteMode == RemoteMode::REMOTE_EXIT &&
-      state.remoteMode != DriveMode::REMOTE;
+      command_.remote_mode() == pb::REMOTE_MODE_EXIT &&
+      state.drive_mode() != pb::DRIVE_MODE_REMOTE;
   if (enter_confirmed || exit_confirmed)
-    command_.remoteMode = RemoteMode::REMOTE_NO_CONTROL;
+    command_.set_remote_mode(pb::REMOTE_MODE_NO_CONTROL);
 
   // 开关命令被实车状态确认后恢复为不控制，避免覆盖其他控制端
-  clearConfirmedSwitch(command_.parking, state.parking);
-  clearConfirmedSwitch(command_.horn, state.horn);
-  clearConfirmedSwitch(command_.spray, state.spray);
-  clearConfirmedSwitch(command_.remote_emergency, state.emergency);
-  clearConfirmedSwitch(command_.window_wiper, state.window_wiper);
-  clearConfirmedSwitch(command_.light_brake, state.light_brake);
-  clearConfirmedSwitch(command_.light_position, state.light_position);
-  clearConfirmedSwitch(command_.light_near, state.light_near);
-  clearConfirmedSwitch(command_.light_far, state.light_far);
-  clearConfirmedSwitch(command_.light_turn_left, state.light_turn_left);
-  clearConfirmedSwitch(command_.light_turn_right, state.light_turn_right);
-  clearConfirmedSwitch(command_.light_working_rear,
-                       state.light_working_rear);
-  clearConfirmedSwitch(command_.light_danger, state.light_danger);
-  clearConfirmedSwitch(command_.light_reverse, state.light_reverse);
-  clearConfirmedSwitch(command_.light_double_flash,
-                       state.light_double_flash);
-  clearConfirmedSwitch(command_.light_front, state.light_front);
-  clearConfirmedSwitch(command_.light_working_side,
-                       state.light_working_side);
-  clearConfirmedSwitch(command_.light_fog, state.light_fog);
-  clearConfirmedSwitch(command_.diff_lock, state.diff_lock);
+  command_.set_parking(
+      clearConfirmedSwitch(command_.parking(), state.parking()));
+  command_.set_horn(clearConfirmedSwitch(command_.horn(), state.horn()));
+  command_.set_spray(clearConfirmedSwitch(command_.spray(), state.spray()));
+  command_.set_remote_emergency(clearConfirmedSwitch(
+      command_.remote_emergency(), state.emergency()));
+  command_.set_window_wiper(
+      clearConfirmedSwitch(command_.window_wiper(), state.window_wiper()));
+  command_.set_light_brake(
+      clearConfirmedSwitch(command_.light_brake(), state.light_brake()));
+  command_.set_light_position(clearConfirmedSwitch(
+      command_.light_position(), state.light_position()));
+  command_.set_light_near(
+      clearConfirmedSwitch(command_.light_near(), state.light_near()));
+  command_.set_light_far(
+      clearConfirmedSwitch(command_.light_far(), state.light_far()));
+  command_.set_light_turn_left(clearConfirmedSwitch(
+      command_.light_turn_left(), state.light_turn_left()));
+  command_.set_light_turn_right(clearConfirmedSwitch(
+      command_.light_turn_right(), state.light_turn_right()));
+  command_.set_light_working_rear(clearConfirmedSwitch(
+      command_.light_working_rear(), state.light_working_rear()));
+  command_.set_light_danger(
+      clearConfirmedSwitch(command_.light_danger(), state.light_danger()));
+  command_.set_light_reverse(
+      clearConfirmedSwitch(command_.light_reverse(), state.light_reverse()));
+  command_.set_light_double_flash(clearConfirmedSwitch(
+      command_.light_double_flash(), state.light_double_flash()));
+  command_.set_light_front(
+      clearConfirmedSwitch(command_.light_front(), state.light_front()));
+  command_.set_light_working_side(clearConfirmedSwitch(
+      command_.light_working_side(), state.light_working_side()));
+  command_.set_light_fog(
+      clearConfirmedSwitch(command_.light_fog(), state.light_fog()));
+  command_.set_diff_lock(
+      clearConfirmedSwitch(command_.diff_lock(), state.diff_lock()));
 }
 
 // 判断按键上升沿
@@ -166,57 +193,63 @@ bool ControlCommandGenerator::rose(bool current, bool previous) {
 
 // 更新转向踏板与持续型控制
 void ControlCommandGenerator::updateContinuousControls() {
-  command_.steering_angle = current_.wheel * kMaxSteeringDegrees;
-  command_.acc_pedal = current_.accelerator_pedal * 100.0;
-  command_.brake_pedal = current_.brake_pedal * 100.0;
-  command_.horn = switchCommand(povUp(current_.pov));
-  command_.spray = switchCommand(current_.r2_pressed);
-  command_.light_brake = switchCommand(command_.brake_pedal > 0);
+  const double brake_percent = current_.brake_pedal * 100.0;
+  command_.set_steering_angle(current_.wheel * kMaxSteeringDegrees);
+  command_.set_accelerator_percent(current_.accelerator_pedal * 100.0);
+  command_.set_brake_percent(brake_percent);
+  command_.set_horn(switchCommand(povUp(current_.pov)));
+  command_.set_spray(switchCommand(current_.r2_pressed));
+  command_.set_light_brake(switchCommand(brake_percent > 0));
 }
 
 // 处理制动与挡位组合
 void ControlCommandGenerator::updateGear() {
   // 判断车辆是否满足换挡条件
   const bool vehicle_stopped =
-      !has_actual_state_ || std::abs(actual_state_.speed) <= kGearShiftMaxSpeed;
+      !has_actual_state_ ||
+      std::abs(actual_state_.speed()) <= kGearShiftMaxSpeed;
   const bool can_shift =
       current_.brake_pedal > kGearShiftBrakeThreshold && vehicle_stopped;
-  if (!can_shift) return;
+  if (!can_shift)
+    return;
 
   // 将组合按键映射为目标挡位
   if (current_.select_pressed ||
       (current_.l3_pressed && current_.r3_pressed)) {
-    command_.gear = GearInfo::NEUTRAL;
+    command_.set_gear(pb::GEAR_NEUTRAL);
   } else if (current_.l3_pressed) {
-    command_.gear = GearInfo::DRIVE_1;
+    command_.set_gear(pb::GEAR_DRIVE_1);
   } else if (current_.r3_pressed) {
-    command_.gear = GearInfo::REVERSE_1;
+    command_.set_gear(pb::GEAR_REVERSE_1);
   }
   // 根据当前挡位联动倒车灯
-  command_.light_reverse =
-      switchCommand(command_.gear == GearInfo::REVERSE_1);
+  command_.set_light_reverse(
+      switchCommand(command_.gear() == pb::GEAR_REVERSE_1));
 }
 
 // 处理铲斗按钮状态
 void ControlCommandGenerator::updateBucket() {
-  command_.bucket_info =
+  command_.set_bucket(
       current_.plus_pressed && !current_.minus_pressed
-          ? BucketInfo::BUCKET_UP
+          ? pb::BUCKET_UP
           : (!current_.plus_pressed && current_.minus_pressed
-                 ? BucketInfo::BUCKET_DOWN
-                 : BucketInfo::BUCKET_KEEP);
+                 ? pb::BUCKET_DOWN
+                 : pb::BUCKET_KEEP));
 }
 
 // 处理单次按下切换
 void ControlCommandGenerator::updateToggleControls() {
   // 切换雨刷与差速锁
   if (rose(current_.l2_pressed, previous_.l2_pressed))
-    toggleSwitch(command_.window_wiper, actual_state_.window_wiper);
+    command_.set_window_wiper(
+        toggleSwitch(command_.window_wiper(), actual_state_.window_wiper()));
 
   if (rose(current_.square_pressed, previous_.square_pressed))
-    toggleSwitch(command_.light_fog, actual_state_.light_fog);
+    command_.set_light_fog(
+        toggleSwitch(command_.light_fog(), actual_state_.light_fog()));
   if (rose(current_.start_pressed, previous_.start_pressed))
-    toggleSwitch(command_.diff_lock, actual_state_.diff_lock);
+    command_.set_diff_lock(
+        toggleSwitch(command_.diff_lock(), actual_state_.diff_lock()));
 
   // 切换近光与远光
   const bool near_changed =
@@ -224,30 +257,34 @@ void ControlCommandGenerator::updateToggleControls() {
   const bool far_changed =
       rose(current_.triangle_pressed, previous_.triangle_pressed);
   if (near_changed)
-    toggleSwitch(command_.light_near, actual_state_.light_near);
+    command_.set_light_near(
+        toggleSwitch(command_.light_near(), actual_state_.light_near()));
   if (far_changed)
-    toggleSwitch(command_.light_far, actual_state_.light_far);
+    command_.set_light_far(
+        toggleSwitch(command_.light_far(), actual_state_.light_far()));
 
   // 近光或远光开启时联动灯组
   if (near_changed || far_changed) {
     const bool light_group =
-        requestedState(command_.light_near, actual_state_.light_near) ||
-        requestedState(command_.light_far, actual_state_.light_far);
-    command_.light_position = switchCommand(light_group);
-    command_.light_working_rear = switchCommand(light_group);
-    command_.light_danger = switchCommand(light_group);
-    command_.light_front = switchCommand(light_group);
-    command_.light_working_side = switchCommand(light_group);
+        requestedState(command_.light_near(), actual_state_.light_near()) ||
+        requestedState(command_.light_far(), actual_state_.light_far());
+    command_.set_light_position(switchCommand(light_group));
+    command_.set_light_working_rear(switchCommand(light_group));
+    command_.set_light_danger(switchCommand(light_group));
+    command_.set_light_front(switchCommand(light_group));
+    command_.set_light_working_side(switchCommand(light_group));
   }
 
   // 切换双闪与转向灯
   if (rose(current_.circle_pressed, previous_.circle_pressed))
-    toggleSwitch(command_.light_double_flash,
-                 actual_state_.light_double_flash);
+    command_.set_light_double_flash(toggleSwitch(
+        command_.light_double_flash(), actual_state_.light_double_flash()));
   if (rose(povLeft(current_.pov), povLeft(previous_.pov)))
-    toggleSwitch(command_.light_turn_left, actual_state_.light_turn_left);
+    command_.set_light_turn_left(toggleSwitch(
+        command_.light_turn_left(), actual_state_.light_turn_left()));
   if (rose(povRight(current_.pov), povRight(previous_.pov)))
-    toggleSwitch(command_.light_turn_right, actual_state_.light_turn_right);
+    command_.set_light_turn_right(toggleSwitch(
+        command_.light_turn_right(), actual_state_.light_turn_right()));
 }
 
 // 处理旋钮进入与退出远控
@@ -285,16 +322,16 @@ void ControlCommandGenerator::updateRemoteMode(Clock::time_point now) {
   }
   if (remote_cw_count_ >= kRemoteRotationThreshold) {
     resetCommandForRemoteEntry();
-    command_.remoteMode = RemoteMode::REMOTE_ENTER;
+    command_.set_remote_mode(pb::REMOTE_MODE_ENTER);
   } else if (remote_ccw_count_ >= kRemoteRotationThreshold) {
-    command_.remoteMode = RemoteMode::REMOTE_EXIT;
+    command_.set_remote_mode(pb::REMOTE_MODE_EXIT);
   }
   resetRemoteRotation();
 }
 
 // 清除上一轮远控遗留的挡位、踏板和辅助开关
 void ControlCommandGenerator::resetCommandForRemoteEntry() {
-  command_ = RemoteCtlCmd{};
+  command_ = pb::RemoteDriveControlCommand{};
   parking_holding_ = false;
   parking_action_done_ = false;
   parking_hold_start_ = {};

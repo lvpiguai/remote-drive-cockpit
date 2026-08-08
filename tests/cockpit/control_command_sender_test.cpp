@@ -5,7 +5,6 @@
 #include <sys/socket.h>
 
 #include <cassert>
-#include <cstring>
 
 #include "protocol/udp_protocol.h"
 
@@ -30,16 +29,18 @@ void waitUntilReadable(const UdpChannel &channel) {
 } // namespace
 
 int main() {
+  namespace pb = remote_drive::protocol;
+
   UdpChannel sender_channel;
   UdpChannel receiver_channel;
   assert(sender_channel.bindPort(0));
   assert(receiver_channel.bindPort(0));
 
   ControlCommandSender sender(sender_channel);
-  RemoteCtlCmd command{};
-  std::memcpy(command.cockpit_id, "cockpit_01", 10);
-  command.remoteMode = RemoteMode::REMOTE_ENTER;
-  command.steering_angle = 12.5;
+  pb::RemoteDriveControlCommand command;
+  command.set_cockpit_id("cockpit_01");
+  command.set_remote_mode(pb::REMOTE_MODE_ENTER);
+  command.set_steering_angle(12.5);
 
   // 首条控制指令使用序号 1，并能由接收端完整解码
   const sockaddr_in destination = localAddress(receiver_channel);
@@ -55,8 +56,8 @@ int main() {
   assert(decoded);
   assert(decoded->body == remote_protocol::PacketBody::CONTROL_CMD);
   assert(decoded->sequence == 1);
-  assert(decoded->control.remoteMode == RemoteMode::REMOTE_ENTER);
-  assert(decoded->control.steering_angle == 12.5);
+  assert(decoded->control.remote_mode() == pb::REMOTE_MODE_ENTER);
+  assert(decoded->control.steering_angle() == 12.5);
 
   // 后续发送沿用同一发送器并递增控制序号
   const auto second_sequence = sender.send(command, destination);

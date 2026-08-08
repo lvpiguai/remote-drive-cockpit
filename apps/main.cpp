@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "cockpit/cockpit.h"
+#include "protocol/udp_protocol.h"
 
 namespace {
 
@@ -56,7 +57,7 @@ bool parseArguments(int argc, char *argv[], std::string &input_device_path,
   }
   return !input_device_path.empty() && !vehicle_ids.empty() &&
          !cockpit_id.empty() &&
-         cockpit_id.size() < sizeof(RemoteCtlCmd{}.cockpit_id) &&
+         cockpit_id.size() <= remote_protocol::kMaxIdLength &&
          cockpit_id.find_first_of("\\\"") == std::string::npos;
 }
 

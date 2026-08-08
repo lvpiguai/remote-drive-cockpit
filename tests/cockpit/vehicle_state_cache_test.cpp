@@ -2,16 +2,16 @@
 
 #include <cassert>
 #include <chrono>
-#include <cstring>
 #include <thread>
 
 namespace {
+namespace pb = remote_drive::protocol;
 
 // 构造带车辆标识和驾驶模式的最小状态快照
-RemoteDrivingState state(const char *vehicle_id, DriveMode mode) {
-  RemoteDrivingState result{};
-  std::strncpy(result.vehicle_id, vehicle_id, sizeof(result.vehicle_id) - 1);
-  result.remoteMode = mode;
+pb::ChassisState state(const char *vehicle_id, pb::DriveMode mode) {
+  pb::ChassisState result;
+  result.set_vehicle_id(vehicle_id);
+  result.set_drive_mode(mode);
   return result;
 }
 
@@ -20,8 +20,8 @@ RemoteDrivingState state(const char *vehicle_id, DriveMode mode) {
 int main() {
   using namespace std::chrono_literals;
   VehicleStateCache cache;
-  const auto first = state("truck_01", DriveMode::STANDBY);
-  const auto second = state("truck_02", DriveMode::REMOTE);
+  const auto first = state("truck_01", pb::DRIVE_MODE_STANDBY);
+  const auto second = state("truck_02", pb::DRIVE_MODE_REMOTE);
 
   // 不同车辆的状态、序号和接收时间分别保存  assert(!cache.record("truck_01"));
   const auto before_update = std::chrono::steady_clock::now();
@@ -32,7 +32,7 @@ int main() {
   const auto *first_record = cache.record("truck_01");
   assert(first_record);
   assert(first_record->sequence == 8);
-  assert(first_record->state.remoteMode == DriveMode::STANDBY);
+  assert(first_record->state.drive_mode() == pb::DRIVE_MODE_STANDBY);
   assert(first_record->last_update_time >= before_update);
   assert(first_record->last_update_time <= after_update);
   assert(cache.record("truck_02"));

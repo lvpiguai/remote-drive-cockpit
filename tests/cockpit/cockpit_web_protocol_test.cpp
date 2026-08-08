@@ -1,11 +1,12 @@
 #include "cockpit/cockpit_web_protocol.h"
 
 #include <cassert>
-#include <cstring>
 #include <string>
 #include <vector>
 
 int main() {
+  namespace pb = remote_drive::protocol;
+
   // 校验 Web 选车命令只接受约定的精确 JSON 格式
   const auto select = cockpit_web::parseCommand(
       R"({"type":"select_vehicle","vehicle_id":"truck_01"})");
@@ -38,16 +39,16 @@ int main() {
       R"({"type":"vehicles","cockpit_id":"cockpit_02","selected":null,"vehicles":[]})");
 
   // 控制快照完整展示目标车辆、驾驶舱和主要控制字段
-  RemoteCtlCmd control{};
-  std::memcpy(control.cockpit_id, "cockpit_01", 10);
-  control.steering_angle = -12.5;
-  control.acc_pedal = 20;
-  control.brake_pedal = 30;
-  control.gear = GearInfo::DRIVE_1;
-  control.bucket_info = BucketInfo::BUCKET_UP;
-  control.remoteMode = RemoteMode::REMOTE_ENTER;
-  control.horn = SwitchCommand::ON;
-  control.light_near = SwitchCommand::ON;
+  pb::RemoteDriveControlCommand control;
+  control.set_cockpit_id("cockpit_01");
+  control.set_steering_angle(-12.5);
+  control.set_accelerator_percent(20);
+  control.set_brake_percent(30);
+  control.set_gear(pb::GEAR_DRIVE_1);
+  control.set_bucket(pb::BUCKET_UP);
+  control.set_remote_mode(pb::REMOTE_MODE_ENTER);
+  control.set_horn(pb::SWITCH_ON);
+  control.set_light_near(pb::SWITCH_ON);
   const std::string control_json =
       cockpit_web::serializeControlCommand(control, 7, "truck_01");
   assert(control_json.find(R"("type":"control","seq":7)") != std::string::npos);
@@ -62,14 +63,14 @@ int main() {
   assert(control_json.find(R"("parking":"NO_CTL")") != std::string::npos);
 
   // 状态快照完整展示车辆实际状态和当前控制驾驶舱
-  RemoteDrivingState state{};
-  std::memcpy(state.vehicle_id, "truck_01", 8);
-  std::memcpy(state.controller_id, "cockpit_02", 10);
-  state.remoteMode = DriveMode::REMOTE;
-  state.speed = 4.5;
-  state.gear = GearInfo::REVERSE_1;
-  state.bucket = BucketInfo::BUCKET_DOWN;
-  state.emergency = true;
+  pb::ChassisState state;
+  state.set_vehicle_id("truck_01");
+  state.set_controller_id("cockpit_02");
+  state.set_drive_mode(pb::DRIVE_MODE_REMOTE);
+  state.set_speed(4.5);
+  state.set_gear(pb::GEAR_REVERSE_1);
+  state.set_bucket(pb::BUCKET_DOWN);
+  state.set_emergency(true);
   const std::string state_json = cockpit_web::serializeVehicleState(state, 9);
   assert(state_json.find(R"("type":"state","seq":9,"vehicle_id":"truck_01")") !=
          std::string::npos);

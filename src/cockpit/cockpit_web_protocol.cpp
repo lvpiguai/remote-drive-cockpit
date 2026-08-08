@@ -6,6 +6,8 @@
 namespace cockpit_web {
 namespace {
 
+namespace pb = remote_drive::protocol;
+
 // 转义 JSON 字符串
 std::string jsonString(const std::string &value) {
   std::string escaped;
@@ -19,61 +21,69 @@ std::string jsonString(const std::string &value) {
 }
 
 // 车辆驾驶模式文本
-const char *modeName(DriveMode mode) {
+const char *modeName(pb::DriveMode mode) {
   switch (mode) {
-  case DriveMode::MANUAL:
+  case pb::DRIVE_MODE_MANUAL:
     return "MANUAL";
-  case DriveMode::STANDBY:
+  case pb::DRIVE_MODE_STANDBY:
     return "STANDBY";
-  case DriveMode::REMOTE:
+  case pb::DRIVE_MODE_REMOTE:
     return "REMOTE";
-  case DriveMode::AUTO:
+  case pb::DRIVE_MODE_AUTO:
     return "AUTO";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
 
 // 挡位文本
-const char *gearName(GearInfo gear) {
+const char *gearName(pb::Gear gear) {
   switch (gear) {
-  case GearInfo::NEUTRAL:
+  case pb::GEAR_NEUTRAL:
     return "N";
-  case GearInfo::REVERSE_1:
+  case pb::GEAR_REVERSE_1:
     return "R1";
-  case GearInfo::REVERSE_2:
+  case pb::GEAR_REVERSE_2:
     return "R2";
-  case GearInfo::DRIVE_1:
+  case pb::GEAR_DRIVE_1:
     return "D1";
-  case GearInfo::DRIVE_2:
+  case pb::GEAR_DRIVE_2:
     return "D2";
-  case GearInfo::DRIVE_3:
+  case pb::GEAR_DRIVE_3:
     return "D3";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
 
 // 远控指令文本
-const char *remoteModeName(RemoteMode mode) {
+const char *remoteModeName(pb::RemoteMode mode) {
   switch (mode) {
-  case RemoteMode::REMOTE_NO_CONTROL:
+  case pb::REMOTE_MODE_NO_CONTROL:
     return "NONE";
-  case RemoteMode::REMOTE_ENTER:
+  case pb::REMOTE_MODE_ENTER:
     return "ENTER";
-  case RemoteMode::REMOTE_EXIT:
+  case pb::REMOTE_MODE_EXIT:
     return "EXIT";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
 
 // 铲斗状态文本
-const char *bucketName(BucketInfo bucket) {
+const char *bucketName(pb::Bucket bucket) {
   switch (bucket) {
-  case BucketInfo::BUCKET_UP:
+  case pb::BUCKET_UP:
     return "UP";
-  case BucketInfo::BUCKET_DOWN:
+  case pb::BUCKET_DOWN:
     return "DOWN";
-  case BucketInfo::BUCKET_KEEP:
+  case pb::BUCKET_KEEP:
     return "KEEP";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
@@ -82,14 +92,16 @@ const char *bucketName(BucketInfo bucket) {
 const char *jsonBool(bool value) { return value ? "true" : "false"; }
 
 // 三态开关文本
-const char *switchCommandName(SwitchCommand command) {
+const char *switchCommandName(pb::SwitchCommand command) {
   switch (command) {
-  case SwitchCommand::NO_CTL:
+  case pb::SWITCH_NO_CONTROL:
     return "NO_CTL";
-  case SwitchCommand::OFF:
+  case pb::SWITCH_OFF:
     return "OFF";
-  case SwitchCommand::ON:
+  case pb::SWITCH_ON:
     return "ON";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
@@ -117,71 +129,74 @@ Command parseCommand(const std::string &message) {
 }
 
 // 序列化控制指令
-std::string serializeControlCommand(const RemoteCtlCmd &command,
+std::string serializeControlCommand(const pb::RemoteDriveControlCommand &command,
                                     std::uint32_t sequence,
                                     const std::string &vehicle_id) {
   std::ostringstream json;
   json << R"({"type":"control","seq":)" << sequence << R"(,"vehicle_id":")"
        << jsonString(vehicle_id) << '"' << R"(,"cockpit_id":")"
-       << jsonString(std::string(command.cockpit_id)) << '"'
-       << R"(,"steering":)" << command.steering_angle << R"(,"acc":)"
-       << command.acc_pedal << R"(,"brake":)" << command.brake_pedal
-       << R"(,"gear":")" << gearName(command.gear) << R"(","bucket":")"
-       << bucketName(command.bucket_info) << R"(","remote":")"
-       << remoteModeName(command.remoteMode) << R"(","parking":")"
-       << switchCommandName(command.parking) << R"(","horn":")"
-       << switchCommandName(command.horn) << R"(","spray":")"
-       << switchCommandName(command.spray) << R"(","emergency":")"
-       << switchCommandName(command.remote_emergency) << R"(","wiper":")"
-       << switchCommandName(command.window_wiper) << R"(","brakeLight":")"
-       << switchCommandName(command.light_brake) << R"(","positionLight":")"
-       << switchCommandName(command.light_position) << R"(","lowBeam":")"
-       << switchCommandName(command.light_near) << R"(","highBeam":")"
-       << switchCommandName(command.light_far) << R"(","leftTurn":")"
-       << switchCommandName(command.light_turn_left) << R"(","rightTurn":")"
-       << switchCommandName(command.light_turn_right)
+       << jsonString(command.cockpit_id()) << '"' << R"(,"steering":)"
+       << command.steering_angle() << R"(,"acc":)"
+       << command.accelerator_percent() << R"(,"brake":)"
+       << command.brake_percent() << R"(,"gear":")"
+       << gearName(command.gear()) << R"(","bucket":")"
+       << bucketName(command.bucket()) << R"(","remote":")"
+       << remoteModeName(command.remote_mode()) << R"(","parking":")"
+       << switchCommandName(command.parking()) << R"(","horn":")"
+       << switchCommandName(command.horn()) << R"(","spray":")"
+       << switchCommandName(command.spray()) << R"(","emergency":")"
+       << switchCommandName(command.remote_emergency()) << R"(","wiper":")"
+       << switchCommandName(command.window_wiper()) << R"(","brakeLight":")"
+       << switchCommandName(command.light_brake()) << R"(","positionLight":")"
+       << switchCommandName(command.light_position()) << R"(","lowBeam":")"
+       << switchCommandName(command.light_near()) << R"(","highBeam":")"
+       << switchCommandName(command.light_far()) << R"(","leftTurn":")"
+       << switchCommandName(command.light_turn_left()) << R"(","rightTurn":")"
+       << switchCommandName(command.light_turn_right())
        << R"(","rearWorkLight":")"
-       << switchCommandName(command.light_working_rear)
-       << R"(","warningLight":")" << switchCommandName(command.light_danger)
-       << R"(","reverseLight":")" << switchCommandName(command.light_reverse)
+       << switchCommandName(command.light_working_rear())
+       << R"(","warningLight":")" << switchCommandName(command.light_danger())
+       << R"(","reverseLight":")" << switchCommandName(command.light_reverse())
        << R"(","hazardLight":")"
-       << switchCommandName(command.light_double_flash) << R"(","frontLight":")"
-       << switchCommandName(command.light_front) << R"(","sideWorkLight":")"
-       << switchCommandName(command.light_working_side) << R"(","fogLight":")"
-       << switchCommandName(command.light_fog) << R"(","diffLock":")"
-       << switchCommandName(command.diff_lock) << R"("})";
+       << switchCommandName(command.light_double_flash())
+       << R"(","frontLight":")" << switchCommandName(command.light_front())
+       << R"(","sideWorkLight":")"
+       << switchCommandName(command.light_working_side())
+       << R"(","fogLight":")" << switchCommandName(command.light_fog())
+       << R"(","diffLock":")" << switchCommandName(command.diff_lock())
+       << R"("})";
   return json.str();
 }
 
 // 序列化车辆状态
-std::string serializeVehicleState(const RemoteDrivingState &state,
+std::string serializeVehicleState(const pb::ChassisState &state,
                                   std::uint32_t sequence) {
   std::ostringstream json;
   json << R"({"type":"state","seq":)" << sequence << R"(,"vehicle_id":")"
-       << jsonString(std::string(state.vehicle_id)) << '"'
-       << R"(,"controller_id":")"
-       << jsonString(std::string(state.controller_id)) << '"' << R"(,"mode":")"
-       << modeName(state.remoteMode) << R"(","steering":)" << state.steering
-       << R"(,"speed":)" << state.speed << R"(,"gear":")"
-       << gearName(state.gear) << R"(","bucket":")" << bucketName(state.bucket)
-       << R"(","parking":)" << jsonBool(state.parking) << R"(,"horn":)"
-       << jsonBool(state.horn) << R"(,"spray":)" << jsonBool(state.spray)
-       << R"(,"emergency":)" << jsonBool(state.emergency) << R"(,"wiper":)"
-       << jsonBool(state.window_wiper) << R"(,"brakeLight":)"
-       << jsonBool(state.light_brake) << R"(,"positionLight":)"
-       << jsonBool(state.light_position) << R"(,"lowBeam":)"
-       << jsonBool(state.light_near) << R"(,"highBeam":)"
-       << jsonBool(state.light_far) << R"(,"leftTurn":)"
-       << jsonBool(state.light_turn_left) << R"(,"rightTurn":)"
-       << jsonBool(state.light_turn_right) << R"(,"rearWorkLight":)"
-       << jsonBool(state.light_working_rear) << R"(,"warningLight":)"
-       << jsonBool(state.light_danger) << R"(,"reverseLight":)"
-       << jsonBool(state.light_reverse) << R"(,"hazardLight":)"
-       << jsonBool(state.light_double_flash) << R"(,"frontLight":)"
-       << jsonBool(state.light_front) << R"(,"sideWorkLight":)"
-       << jsonBool(state.light_working_side) << R"(,"fogLight":)"
-       << jsonBool(state.light_fog) << R"(,"diffLock":)"
-       << jsonBool(state.diff_lock) << '}';
+       << jsonString(state.vehicle_id()) << '"' << R"(,"controller_id":")"
+       << jsonString(state.controller_id()) << '"' << R"(,"mode":")"
+       << modeName(state.drive_mode()) << R"(","steering":)"
+       << state.steering_angle() << R"(,"speed":)" << state.speed()
+       << R"(,"gear":")" << gearName(state.gear()) << R"(","bucket":")"
+       << bucketName(state.bucket()) << R"(","parking":)"
+       << jsonBool(state.parking()) << R"(,"horn":)" << jsonBool(state.horn())
+       << R"(,"spray":)" << jsonBool(state.spray()) << R"(,"emergency":)"
+       << jsonBool(state.emergency()) << R"(,"wiper":)"
+       << jsonBool(state.window_wiper()) << R"(,"brakeLight":)"
+       << jsonBool(state.light_brake()) << R"(,"positionLight":)"
+       << jsonBool(state.light_position()) << R"(,"lowBeam":)"
+       << jsonBool(state.light_near()) << R"(,"highBeam":)"
+       << jsonBool(state.light_far()) << R"(,"leftTurn":)"
+       << jsonBool(state.light_turn_left()) << R"(,"rightTurn":)"
+       << jsonBool(state.light_turn_right()) << R"(,"rearWorkLight":)"
+       << jsonBool(state.light_working_rear()) << R"(,"warningLight":)"
+       << jsonBool(state.light_danger()) << R"(,"reverseLight":)"
+       << jsonBool(state.light_reverse()) << R"(,"hazardLight":)"
+       << jsonBool(state.light_double_flash()) << R"(,"frontLight":)"
+       << jsonBool(state.light_front()) << R"(,"sideWorkLight":)"
+       << jsonBool(state.light_working_side()) << R"(,"fogLight":)"
+       << jsonBool(state.light_fog()) << R"(,"diffLock":)"
+       << jsonBool(state.diff_lock()) << '}';
   return json.str();
 }
 

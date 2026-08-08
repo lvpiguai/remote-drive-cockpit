@@ -3,22 +3,25 @@
 #include <chrono>
 
 #include "cockpit/input_device_state.h"
-#include "protocol/remote_control_protocol.h"
+#include "remote_drive.pb.h"
 
 // 根据操作输入生成远程控制指令
 class ControlCommandGenerator {
  public:
   using Clock = std::chrono::steady_clock;
 
+  ControlCommandGenerator();
+
   // 消费新输入并更新边沿和按住状态
   void updateInput(const InputDeviceState &state,
                    Clock::time_point now = Clock::now());
 
   // 基于最新输入和当前时间生成待发送指令
-  RemoteCtlCmd generate(Clock::time_point now = Clock::now());
+  remote_drive::protocol::RemoteDriveControlCommand
+  generate(Clock::time_point now = Clock::now());
 
   // 同步车辆实际状态
-  void syncVehicleState(const RemoteDrivingState &state);
+  void syncVehicleState(const remote_drive::protocol::ChassisState &state);
 
   // 清空全部映射状态
   void reset();
@@ -53,8 +56,8 @@ class ControlCommandGenerator {
 
   InputDeviceState current_{};
   InputDeviceState previous_{};
-  RemoteCtlCmd command_{};
-  RemoteDrivingState actual_state_{};
+  remote_drive::protocol::RemoteDriveControlCommand command_{};
+  remote_drive::protocol::ChassisState actual_state_{};
   bool has_input_ = false;
   bool has_actual_state_ = false;
 

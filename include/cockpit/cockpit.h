@@ -16,7 +16,7 @@
 #include "cockpit/vehicle_state_cache.h"
 #include "common/websocket_server.h"
 #include "devices/input_device_reader.h"
-#include "protocol/remote_control_protocol.h"
+#include "remote_drive.pb.h"
 
 class Cockpit {
 public:
@@ -48,8 +48,8 @@ private:
                        const sockaddr_in &source);
 
   // 处理车辆状态
-  void handleState(const RemoteDrivingState &state, std::uint32_t sequence,
-                   const sockaddr_in &source);
+  void handleState(const remote_drive::protocol::ChassisState &state,
+                   std::uint32_t sequence, const sockaddr_in &source);
 
   // 接收 Web 页面的车辆选择消息
   void receiveWebMessages();
@@ -70,7 +70,9 @@ private:
   void updateControl(Clock::time_point now);
 
   // 向指定车辆发送控制指令
-  bool sendControlCommand(const std::string &vehicle_id, RemoteCtlCmd command);
+  bool sendControlCommand(
+      const std::string &vehicle_id,
+      remote_drive::protocol::RemoteDriveControlCommand command);
 
   // 周期推送车辆在线状态
   void publishVehicleList(Clock::time_point now);

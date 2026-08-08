@@ -2,7 +2,7 @@
 
 // 保存指定车辆的最新状态记录
 void VehicleStateCache::update(const std::string &vehicle_id,
-                               const RemoteDrivingState &state,
+                               const remote_drive::protocol::ChassisState &state,
                                std::uint32_t sequence) {
   state_records_[vehicle_id] = {state, sequence, Clock::now()};
 }

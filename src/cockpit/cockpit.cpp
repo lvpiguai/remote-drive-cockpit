@@ -16,40 +16,46 @@
 
 namespace {
 
+namespace pb = remote_drive::protocol;
+
 constexpr auto kVehicleOnlineTimeout = std::chrono::milliseconds(2500);
 constexpr auto kVehicleListInterval = std::chrono::milliseconds(200);
 constexpr auto kControlInterval = std::chrono::milliseconds(100);
 
 // 将驾驶模式转换为日志文本
-const char *modeName(DriveMode mode) {
+const char *modeName(pb::DriveMode mode) {
   switch (mode) {
-  case DriveMode::MANUAL:
+  case pb::DRIVE_MODE_MANUAL:
     return "MANUAL";
-  case DriveMode::STANDBY:
+  case pb::DRIVE_MODE_STANDBY:
     return "STANDBY";
-  case DriveMode::REMOTE:
+  case pb::DRIVE_MODE_REMOTE:
     return "REMOTE";
-  case DriveMode::AUTO:
+  case pb::DRIVE_MODE_AUTO:
     return "AUTO";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
 
 // 将挡位转换为日志文本
-const char *gearName(GearInfo gear) {
+const char *gearName(pb::Gear gear) {
   switch (gear) {
-  case GearInfo::NEUTRAL:
+  case pb::GEAR_NEUTRAL:
     return "N";
-  case GearInfo::REVERSE_1:
+  case pb::GEAR_REVERSE_1:
     return "R1";
-  case GearInfo::REVERSE_2:
+  case pb::GEAR_REVERSE_2:
     return "R2";
-  case GearInfo::DRIVE_1:
+  case pb::GEAR_DRIVE_1:
     return "D1";
-  case GearInfo::DRIVE_2:
+  case pb::GEAR_DRIVE_2:
     return "D2";
-  case GearInfo::DRIVE_3:
+  case pb::GEAR_DRIVE_3:
     return "D3";
+  default:
+    break;
   }
   return "UNKNOWN";
 }
@@ -168,11 +174,11 @@ void Cockpit::handleHeartbeat(const std::string &vehicle_id,
 }
 
 // 解码并更新对应车辆的最新状态
-void Cockpit::handleState(const RemoteDrivingState &state,
+void Cockpit::handleState(const pb::ChassisState &state,
                           std::uint32_t sequence,
                           const sockaddr_in &source) {
   // 校验协议、车辆归属和通信地址
-  const std::string vehicle_id(state.vehicle_id);
+  const std::string vehicle_id = state.vehicle_id();
   if (!heartbeat_cache_.matchesEndpoint(vehicle_id, source))
     return;
 
@@ -180,19 +186,20 @@ void Cockpit::handleState(const RemoteDrivingState &state,
 
   // 状态关键量变化时输出终端事件
   const bool discrete_changed =
-      !previous || state.remoteMode != previous->state.remoteMode ||
-      state.gear != previous->state.gear ||
-      state.parking != previous->state.parking ||
-      state.emergency != previous->state.emergency ||
-      std::strcmp(state.controller_id, previous->state.controller_id) != 0;
+      !previous || state.drive_mode() != previous->state.drive_mode() ||
+      state.gear() != previous->state.gear() ||
+      state.parking() != previous->state.parking() ||
+      state.emergency() != previous->state.emergency() ||
+      state.controller_id() != previous->state.controller_id();
   if (discrete_changed) {
     std::cout << "[状态接收] vehicle=" << vehicle_id << " seq=" << sequence
-              << " mode=" << modeName(state.remoteMode)
-              << " speed=" << state.speed << " steering=" << state.steering
-              << " gear=" << gearName(state.gear)
-              << " parking=" << state.parking
-              << " emergency=" << state.emergency
-              << " controller=" << state.controller_id << '\n';
+              << " mode=" << modeName(state.drive_mode())
+              << " speed=" << state.speed()
+              << " steering=" << state.steering_angle()
+              << " gear=" << gearName(state.gear())
+              << " parking=" << state.parking()
+              << " emergency=" << state.emergency()
+              << " controller=" << state.controller_id() << '\n';
   }
 
   // 所有合法车辆状态都独立保存并推送，不依赖当前选择
@@ -200,7 +207,7 @@ void Cockpit::handleState(const RemoteDrivingState &state,
   web_server_.sendText(cockpit_web::serializeVehicleState(state, sequence));
 
   if (selected_vehicle_id_ && *selected_vehicle_id_ == vehicle_id) {
-    const std::string controller_id(state.controller_id);
+    const std::string controller_id = state.controller_id();
     if (!controller_id.empty() && controller_id != cockpit_id_) {
       clearVehicleSelection("车辆已由其他驾驶舱接管");
       return;
@@ -247,7 +254,7 @@ void Cockpit::selectVehicle(const std::string &vehicle_id) {
   const auto *state_record = state_cache_.record(vehicle_id);
   if (!state_record)
     return;
-  const std::string controller_id(state_record->state.controller_id);
+  const std::string controller_id = state_record->state.controller_id();
   if (!controller_id.empty() && controller_id != cockpit_id_)
     return;
 
@@ -265,8 +272,8 @@ void Cockpit::deselectVehicle(const char *reason) {
     return;
 
   const std::string vehicle_id = *selected_vehicle_id_;
-  RemoteCtlCmd exit_command{};
-  exit_command.remoteMode = RemoteMode::REMOTE_EXIT;
+  pb::RemoteDriveControlCommand exit_command;
+  exit_command.set_remote_mode(pb::REMOTE_MODE_EXIT);
   sendControlCommand(vehicle_id, exit_command);
 
   clearVehicleSelection(reason);
@@ -309,14 +316,15 @@ void Cockpit::updateControl(Clock::time_point now) {
   const auto *state_record = state_cache_.record(vehicle_id);
   if (!state_record)
     return;
-  const std::string controller_id(state_record->state.controller_id);
+  const std::string controller_id = state_record->state.controller_id();
   if (!controller_id.empty() && controller_id != cockpit_id_) {
     clearVehicleSelection("车辆控制权已转移");
     return;
   }
-  const RemoteCtlCmd command = command_generator_.generate(now);
-  if (command.remoteMode != RemoteMode::REMOTE_ENTER &&
-      (state_record->state.remoteMode != DriveMode::REMOTE ||
+  const pb::RemoteDriveControlCommand command =
+      command_generator_.generate(now);
+  if (command.remote_mode() != pb::REMOTE_MODE_ENTER &&
+      (state_record->state.drive_mode() != pb::DRIVE_MODE_REMOTE ||
        controller_id != cockpit_id_)) {
     return;
   }
@@ -327,13 +335,12 @@ void Cockpit::updateControl(Clock::time_point now) {
 
 // 查找车辆端点并发送控制指令
 bool Cockpit::sendControlCommand(const std::string &vehicle_id,
-                                 RemoteCtlCmd command) {
+                                 pb::RemoteDriveControlCommand command) {
   const auto endpoint = heartbeat_cache_.endpoint(vehicle_id);
   if (!endpoint)
     return false;
 
-  std::memset(command.cockpit_id, 0, sizeof(command.cockpit_id));
-  std::memcpy(command.cockpit_id, cockpit_id_.data(), cockpit_id_.size());
+  command.set_cockpit_id(cockpit_id_);
 
   const auto sequence = command_sender_.send(command, *endpoint);
   if (!sequence) {
@@ -368,8 +375,8 @@ void Cockpit::publishVehicleList(Clock::time_point now) {
   for (auto &vehicle : vehicles) {
     const auto *record = state_cache_.record(vehicle.id);
     if (record && state_cache_.isFresh(vehicle.id)) {
-      vehicle.controller_id = record->state.controller_id;
-      vehicle.drive_mode = modeName(record->state.remoteMode);
+      vehicle.controller_id = record->state.controller_id();
+      vehicle.drive_mode = modeName(record->state.drive_mode());
     }
   }
   web_server_.sendText(cockpit_web::serializeVehicleStatusList(
