@@ -1,0 +1,39 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "cockpit/vehicle_online_status.h"
+#include "protocol/remote_control_protocol.h"
+
+namespace cockpit_web {
+
+// Web 车辆选择命令，不包含 G29 输入
+enum class CommandType {
+  UNKNOWN,          // 无法识别或格式非法
+  SELECT_VEHICLE,   // 选择指定车辆
+  DESELECT_VEHICLE, // 释放当前车辆
+};
+
+// Web 命令解析结果，仅选车携带 vehicle_id
+struct Command {
+  CommandType type = CommandType::UNKNOWN;
+  std::string vehicle_id;
+};
+
+// 解析 Web 车辆选择命令
+Command parseCommand(const std::string &message);
+
+// 序列化 Web 展示数据
+std::string serializeControlCommand(const RemoteCtlCmd &command,
+                                    std::uint32_t sequence,
+                                    const std::string &vehicle_id);
+std::string serializeVehicleState(const RemoteDrivingState &state,
+                                  std::uint32_t sequence);
+std::string
+serializeVehicleStatusList(const std::vector<VehicleOnlineStatus> &vehicles,
+                           const std::string &selected_vehicle_id,
+                           const std::string &cockpit_id);
+
+} // namespace cockpit_web
