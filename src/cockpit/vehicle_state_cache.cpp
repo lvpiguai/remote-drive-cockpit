@@ -1,5 +1,26 @@
 #include "cockpit/vehicle_state_cache.h"
 
+#include <cmath>
+#include <cstddef>
+
+namespace {
+
+namespace pb = remote_drive::protocol;
+
+constexpr std::size_t kMaxIdLength = 19;
+
+} // namespace
+
+bool VehicleStateCache::isValidState(const pb::ChassisState &state) {
+  return !state.vehicle_id().empty() &&
+         state.vehicle_id().size() <= kMaxIdLength &&
+         state.controller_id().size() <= kMaxIdLength &&
+         std::isfinite(state.steering_angle()) &&
+         std::isfinite(state.speed()) &&
+         pb::DriveMode_IsValid(state.drive_mode()) &&
+         pb::Gear_IsValid(state.gear()) && pb::Bucket_IsValid(state.bucket());
+}
+
 // 保存指定车辆的最新状态记录
 void VehicleStateCache::update(const std::string &vehicle_id,
                                const remote_drive::protocol::ChassisState &state,

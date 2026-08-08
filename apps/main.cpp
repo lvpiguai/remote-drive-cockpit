@@ -1,4 +1,5 @@
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -7,13 +8,13 @@
 #include <vector>
 
 #include "cockpit/cockpit.h"
-#include "protocol/udp_protocol.h"
 
 namespace {
 
 constexpr std::uint16_t kDefaultVehicleUdpPort = 7005;
 constexpr std::uint16_t kDefaultWebSocketPort = 8765;
 constexpr std::string_view kDefaultCockpitId = "cockpit_01";
+constexpr std::size_t kMaxCockpitIdLength = 19;
 
 // 将十进制文本解析为有效的非零端口号
 bool parsePort(std::string_view text, std::uint16_t &port) {
@@ -57,7 +58,7 @@ bool parseArguments(int argc, char *argv[], std::string &input_device_path,
   }
   return !input_device_path.empty() && !vehicle_ids.empty() &&
          !cockpit_id.empty() &&
-         cockpit_id.size() <= remote_protocol::kMaxIdLength &&
+         cockpit_id.size() <= kMaxCockpitIdLength &&
          cockpit_id.find_first_of("\\\"") == std::string::npos;
 }
 

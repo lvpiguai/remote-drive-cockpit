@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <limits>
 #include <thread>
 
 namespace {
@@ -22,6 +23,14 @@ int main() {
   VehicleStateCache cache;
   const auto first = state("truck_01", pb::DRIVE_MODE_STANDBY);
   const auto second = state("truck_02", pb::DRIVE_MODE_REMOTE);
+
+  assert(VehicleStateCache::isValidState(first));
+  auto invalid = first;
+  invalid.clear_vehicle_id();
+  assert(!VehicleStateCache::isValidState(invalid));
+  invalid = first;
+  invalid.set_speed(std::numeric_limits<double>::infinity());
+  assert(!VehicleStateCache::isValidState(invalid));
 
   // 不同车辆的状态、序号和接收时间分别保存  assert(!cache.record("truck_01"));
   const auto before_update = std::chrono::steady_clock::now();

@@ -157,10 +157,11 @@ void Cockpit::receiveVehiclePackets() {
         datagram.payload.data(), datagram.payload.size());
     if (!packet)
       continue;
-    if (packet->body == remote_protocol::PacketBody::HEARTBEAT) {
-      handleHeartbeat(packet->vehicle_id, packet->sequence, datagram.source);
-    } else if (packet->body == remote_protocol::PacketBody::VEHICLE_STATE) {
-      handleState(packet->state, packet->sequence, datagram.source);
+    if (packet->body_case() == pb::UdpPacket::kHeartbeat) {
+      handleHeartbeat(packet->heartbeat().vehicle_id(), packet->sequence(),
+                      datagram.source);
+    } else if (packet->body_case() == pb::UdpPacket::kState) {
+      handleState(packet->state(), packet->sequence(), datagram.source);
     }
   }
 }
@@ -178,6 +179,9 @@ void Cockpit::handleState(const pb::ChassisState &state,
                           std::uint32_t sequence,
                           const sockaddr_in &source) {
   // 校验协议、车辆归属和通信地址
+  if (!VehicleStateCache::isValidState(state))
+    return;
+
   const std::string vehicle_id = state.vehicle_id();
   if (!heartbeat_cache_.matchesEndpoint(vehicle_id, source))
     return;

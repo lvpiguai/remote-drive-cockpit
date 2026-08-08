@@ -17,6 +17,10 @@ struct VehicleStateRecord {
 // 按车辆保存最新状态记录，不依赖当前车辆选择
 class VehicleStateCache {
 public:
+  // 判断车辆状态的标识、数值和枚举是否可由驾驶舱接受
+  static bool isValidState(
+      const remote_drive::protocol::ChassisState &state);
+
   // 保存指定车辆的最新状态记录
   void update(const std::string &vehicle_id,
               const remote_drive::protocol::ChassisState &state,

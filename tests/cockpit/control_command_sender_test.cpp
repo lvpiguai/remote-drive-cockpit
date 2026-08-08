@@ -54,10 +54,10 @@ int main() {
   const auto decoded = remote_protocol::decodePacket(datagram.payload.data(),
                                                      datagram.payload.size());
   assert(decoded);
-  assert(decoded->body == remote_protocol::PacketBody::CONTROL_CMD);
-  assert(decoded->sequence == 1);
-  assert(decoded->control.remote_mode() == pb::REMOTE_MODE_ENTER);
-  assert(decoded->control.steering_angle() == 12.5);
+  assert(decoded->body_case() == pb::UdpPacket::kControl);
+  assert(decoded->sequence() == 1);
+  assert(decoded->control().remote_mode() == pb::REMOTE_MODE_ENTER);
+  assert(decoded->control().steering_angle() == 12.5);
 
   // 后续发送沿用同一发送器并递增控制序号
   const auto second_sequence = sender.send(command, destination);
