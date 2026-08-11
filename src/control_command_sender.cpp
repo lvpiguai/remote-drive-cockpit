@@ -1,6 +1,6 @@
-#include "cockpit/control_command_sender.h"
+#include "control_command_sender.h"
 
-#include "protocol/udp_codec.h"
+#include "udp_codec.h"
 
 // 分配控制序号并发送编码后的控制数据报
 std::optional<std::uint32_t> ControlCommandSender::send(

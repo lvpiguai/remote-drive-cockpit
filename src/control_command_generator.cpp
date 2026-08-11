@@ -1,4 +1,4 @@
-#include "cockpit/control_command_generator.h"
+#include "control_command_generator.h"
 
 #include <cmath>
 
@@ -79,7 +79,7 @@ void ControlCommandGenerator::updateInput(
   // 需要锁存的指令在输入到达时立即处理，避免丢失短按
   updateGear();
   updateToggleControls();
-  updateRemoteMode(now);
+  updateRemoteModeRequest(now);
 
   // 记录或清理驻车长按状态
   const bool parking_combo =
@@ -139,13 +139,13 @@ void ControlCommandGenerator::syncVehicleState(const pb::ChassisState &state) {
 
   // 状态确认后停止重复发送模式切换
   const bool enter_confirmed =
-      command_.remote_mode() == pb::REMOTE_MODE_ENTER &&
+      command_.remote_mode_request() == pb::REMOTE_MODE_REQUEST_ENTER &&
       state.drive_mode() == pb::DRIVE_MODE_REMOTE;
   const bool exit_confirmed =
-      command_.remote_mode() == pb::REMOTE_MODE_EXIT &&
+      command_.remote_mode_request() == pb::REMOTE_MODE_REQUEST_EXIT &&
       state.drive_mode() != pb::DRIVE_MODE_REMOTE;
   if (enter_confirmed || exit_confirmed)
-    command_.set_remote_mode(pb::REMOTE_MODE_NO_CONTROL);
+    command_.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_NONE);
 
   // 开关命令被实车状态确认后恢复为不控制，避免覆盖其他控制端
   command_.set_parking(
@@ -288,7 +288,7 @@ void ControlCommandGenerator::updateToggleControls() {
 }
 
 // 处理旋钮进入与退出远控
-void ControlCommandGenerator::updateRemoteMode(Clock::time_point now) {
+void ControlCommandGenerator::updateRemoteModeRequest(Clock::time_point now) {
   // 超时后丢弃未完成的旋钮序列
   if (last_remote_rotation_ != Clock::time_point{} &&
       now - last_remote_rotation_ > kRemoteRotationTimeout) {
@@ -322,9 +322,9 @@ void ControlCommandGenerator::updateRemoteMode(Clock::time_point now) {
   }
   if (remote_cw_count_ >= kRemoteRotationThreshold) {
     resetCommandForRemoteEntry();
-    command_.set_remote_mode(pb::REMOTE_MODE_ENTER);
+    command_.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_ENTER);
   } else if (remote_ccw_count_ >= kRemoteRotationThreshold) {
-    command_.set_remote_mode(pb::REMOTE_MODE_EXIT);
+    command_.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
   }
   resetRemoteRotation();
 }

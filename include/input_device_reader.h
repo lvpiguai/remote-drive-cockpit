@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "cockpit/input_device_state.h"
+#include "input_device_state.h"
 
 namespace input_device {
 
@@ -35,15 +35,15 @@ class InputEventProcessor {
   std::int32_t hat_y_ = 0;
 };
 
-// 设备采集层：从 /dev/input/eventX 读取输入数据
-class EvdevReader {
+// 输入设备读取器：从 /dev/input/eventX 读取输入数据
+class InputDeviceReader {
  public:
-  EvdevReader() = default;
-  explicit EvdevReader(const std::string &path);
-  ~EvdevReader();
+  InputDeviceReader() = default;
+  explicit InputDeviceReader(const std::string &path);
+  ~InputDeviceReader();
 
-  EvdevReader(const EvdevReader &) = delete;
-  EvdevReader &operator=(const EvdevReader &) = delete;
+  InputDeviceReader(const InputDeviceReader &) = delete;
+  InputDeviceReader &operator=(const InputDeviceReader &) = delete;
 
   // 打开 eventX，读取轴范围，并请求设置 30% 自动回正强度
   bool openDevice(const std::string &path);

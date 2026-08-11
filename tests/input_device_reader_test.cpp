@@ -1,4 +1,4 @@
-#include "devices/input_device_reader.h"
+#include "input_device_reader.h"
 
 #include <cassert>
 #include <cmath>

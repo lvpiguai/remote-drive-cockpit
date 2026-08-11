@@ -1,4 +1,4 @@
-#include "cockpit/udp_channel.h"
+#include "udp_channel.h"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -37,21 +37,20 @@ bool UdpChannel::bindPort(std::uint16_t port) {
 }
 
 // 非阻塞接收一条完整 UDP 数据报
-bool UdpChannel::receive(UdpDatagram &datagram) {
-  if (fd_ < 0) return false;
+std::optional<UdpDatagram> UdpChannel::receive() {
+  if (fd_ < 0) return std::nullopt;
 
+  UdpDatagram datagram;
   datagram.payload.resize(kReceiveBufferSize);
   socklen_t source_size = sizeof(datagram.source);
   const ssize_t size = recvfrom(
       fd_, datagram.payload.data(), datagram.payload.size(), MSG_DONTWAIT,
       reinterpret_cast<sockaddr *>(&datagram.source), &source_size);
-  if (size <= 0) {
-    datagram.payload.clear();
-    return false;
-  }
+  if (size <= 0)
+    return std::nullopt;
 
   datagram.payload.resize(static_cast<std::size_t>(size));
-  return true;
+  return datagram;
 }
 
 // 向指定端点发送一条完整 UDP 数据报

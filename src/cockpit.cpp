@@ -1,4 +1,4 @@
-#include "cockpit/cockpit.h"
+#include "cockpit.h"
 
 #include <poll.h>
 
@@ -11,8 +11,8 @@
 #include <utility>
 #include <vector>
 
-#include "cockpit/cockpit_web_protocol.h"
-#include "protocol/udp_codec.h"
+#include "cockpit_web_protocol.h"
+#include "udp_codec.h"
 
 namespace {
 
@@ -62,13 +62,12 @@ const char *gearName(pb::Gear gear) {
 
 } // namespace
 
-// 创建驾驶舱并注册输入设备和可选车辆
+// 创建驾驶舱并注册输入设备和本地通信端口
 Cockpit::Cockpit(std::string cockpit_id, std::string input_device_path,
-                 std::vector<std::string> vehicle_ids,
                  std::uint16_t vehicle_udp_port, std::uint16_t websocket_port)
     : input_device_reader_(input_device_path),
-      command_sender_(vehicle_channel_),
-      heartbeat_cache_(std::move(vehicle_ids), kVehicleOnlineTimeout),
+      command_sender_(udp_channel_),
+      heartbeat_cache_(kVehicleOnlineTimeout),
       cockpit_id_(std::move(cockpit_id)), vehicle_udp_port_(vehicle_udp_port),
       websocket_port_(websocket_port) {}
 
@@ -87,7 +86,7 @@ int Cockpit::run() {
   while (true) {
     // 组装监听端点
     pollfd descriptors[] = {
-        {vehicle_channel_.fd(), POLLIN, 0},
+        {udp_channel_.fd(), POLLIN, 0},
         {web_server_.listenerFd(), POLLIN, 0},
         {web_server_.clientFd(), POLLIN, 0},
         {input_device_reader_.fd(), POLLIN, 0},
@@ -131,7 +130,7 @@ int Cockpit::run() {
 
 // 初始化 WebSocket 监听和 UDP 通信端点
 bool Cockpit::initialize() {
-  // 输入设备由采集组件持有，不关心它来自真实或虚拟设备
+  // 构造时已尝试打开输入设备，这里检查打开结果
   if (input_device_reader_.fd() < 0) {
     std::cerr << "打开输入设备失败：" << input_device_reader_.error() << '\n';
     return false;
@@ -142,7 +141,7 @@ bool Cockpit::initialize() {
     return false;
 
   // 创建车辆通信端点
-  if (!vehicle_channel_.bindPort(vehicle_udp_port_)) {
+  if (!udp_channel_.bindPort(vehicle_udp_port_)) {
     perror("cockpit socket");
     return false;
   }
@@ -151,17 +150,16 @@ bool Cockpit::initialize() {
 
 // 接收并分发车辆数据
 void Cockpit::receiveVehiclePackets() {
-  UdpDatagram datagram;
-  while (vehicle_channel_.receive(datagram)) {
+  while (const auto datagram = udp_channel_.receive()) {
     const auto packet = udp_codec::decodePacket(
-        datagram.payload.data(), datagram.payload.size());
+        datagram->payload.data(), datagram->payload.size());
     if (!packet)
       continue;
     if (packet->body_case() == pb::UdpPacket::kHeartbeat) {
       handleHeartbeat(packet->heartbeat().vehicle_id(), packet->sequence(),
-                      datagram.source);
+                      datagram->source);
     } else if (packet->body_case() == pb::UdpPacket::kState) {
-      handleState(packet->state(), packet->sequence(), datagram.source);
+      handleState(packet->state(), packet->sequence(), datagram->source);
     }
   }
 }
@@ -170,7 +168,7 @@ void Cockpit::receiveVehiclePackets() {
 void Cockpit::handleHeartbeat(const std::string &vehicle_id,
                               std::uint32_t sequence,
                               const sockaddr_in &source) {
-  // 仅接受指定车辆的新心跳，在线状态由周期快照统一推送
+  // 心跳动态发现车辆，在线状态由周期快照统一推送
   heartbeat_cache_.updateHeartbeat(vehicle_id, source, sequence);
 }
 
@@ -183,7 +181,7 @@ void Cockpit::handleState(const pb::ChassisState &state,
     return;
 
   const std::string vehicle_id = state.vehicle_id();
-  if (!heartbeat_cache_.matchesEndpoint(vehicle_id, source))
+  if (!heartbeat_cache_.matchesVehicleAddress(vehicle_id, source))
     return;
 
   const auto *previous = state_cache_.record(vehicle_id);
@@ -277,7 +275,7 @@ void Cockpit::deselectVehicle(const char *reason) {
 
   const std::string vehicle_id = *selected_vehicle_id_;
   pb::RemoteDriveControlCommand exit_command;
-  exit_command.set_remote_mode(pb::REMOTE_MODE_EXIT);
+  exit_command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
   sendControlCommand(vehicle_id, exit_command);
 
   clearVehicleSelection(reason);
@@ -327,7 +325,7 @@ void Cockpit::updateControl(Clock::time_point now) {
   }
   const pb::RemoteDriveControlCommand command =
       command_generator_.generate(now);
-  if (command.remote_mode() != pb::REMOTE_MODE_ENTER &&
+  if (command.remote_mode_request() != pb::REMOTE_MODE_REQUEST_ENTER &&
       (state_record->state.drive_mode() != pb::DRIVE_MODE_REMOTE ||
        controller_id != cockpit_id_)) {
     return;
@@ -340,13 +338,13 @@ void Cockpit::updateControl(Clock::time_point now) {
 // 查找车辆端点并发送控制指令
 bool Cockpit::sendControlCommand(const std::string &vehicle_id,
                                  pb::RemoteDriveControlCommand command) {
-  const auto endpoint = heartbeat_cache_.endpoint(vehicle_id);
-  if (!endpoint)
+  const auto vehicle_address = heartbeat_cache_.vehicleAddress(vehicle_id);
+  if (!vehicle_address)
     return false;
 
   command.set_cockpit_id(cockpit_id_);
 
-  const auto sequence = command_sender_.send(command, *endpoint);
+  const auto sequence = command_sender_.send(command, *vehicle_address);
   if (!sequence) {
     perror("send control");
     return false;

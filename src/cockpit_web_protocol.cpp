@@ -1,4 +1,4 @@
-#include "cockpit/cockpit_web_protocol.h"
+#include "cockpit_web_protocol.h"
 
 #include <cstdio>
 #include <sstream>
@@ -59,13 +59,13 @@ const char *gearName(pb::Gear gear) {
 }
 
 // 远控指令文本
-const char *remoteModeName(pb::RemoteMode mode) {
+const char *remoteModeRequestName(pb::RemoteModeRequest mode) {
   switch (mode) {
-  case pb::REMOTE_MODE_NO_CONTROL:
+  case pb::REMOTE_MODE_REQUEST_NONE:
     return "NONE";
-  case pb::REMOTE_MODE_ENTER:
+  case pb::REMOTE_MODE_REQUEST_ENTER:
     return "ENTER";
-  case pb::REMOTE_MODE_EXIT:
+  case pb::REMOTE_MODE_REQUEST_EXIT:
     return "EXIT";
   default:
     break;
@@ -141,7 +141,8 @@ std::string serializeControlCommand(const pb::RemoteDriveControlCommand &command
        << command.brake_percent() << R"(,"gear":")"
        << gearName(command.gear()) << R"(","bucket":")"
        << bucketName(command.bucket()) << R"(","remote":")"
-       << remoteModeName(command.remote_mode()) << R"(","parking":")"
+       << remoteModeRequestName(command.remote_mode_request())
+       << R"(","parking":")"
        << switchCommandName(command.parking()) << R"(","horn":")"
        << switchCommandName(command.horn()) << R"(","spray":")"
        << switchCommandName(command.spray()) << R"(","emergency":")"

@@ -1,4 +1,4 @@
-#include "cockpit/vehicle_state_cache.h"
+#include "vehicle_state_cache.h"
 
 #include <cassert>
 #include <chrono>
@@ -32,7 +32,8 @@ int main() {
   invalid.set_speed(std::numeric_limits<double>::infinity());
   assert(!VehicleStateCache::isValidState(invalid));
 
-  // 不同车辆的状态、序号和接收时间分别保存  assert(!cache.record("truck_01"));
+  // 不同车辆的状态、序号和接收时间分别保存
+  assert(!cache.record("truck_01"));
   const auto before_update = std::chrono::steady_clock::now();
   cache.update("truck_01", first, 8);
   const auto after_update = std::chrono::steady_clock::now();

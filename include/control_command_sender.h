@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <optional>
 
-#include "cockpit/udp_channel.h"
+#include "udp_channel.h"
 #include "remote_drive.pb.h"
 
 // 为控制指令分配序号、编码并通过车辆通道发送

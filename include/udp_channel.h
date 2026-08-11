@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 // 一条原始 UDP 数据报，包含实际负载和来源地址
@@ -19,12 +20,14 @@ class UdpChannel {
 
   UdpChannel(const UdpChannel &) = delete;
   UdpChannel &operator=(const UdpChannel &) = delete;
+  UdpChannel(UdpChannel &&) = delete;
+  UdpChannel &operator=(UdpChannel &&) = delete;
 
   // 创建并绑定本地 UDP 端口
   bool bindPort(std::uint16_t port);
 
-  // 非阻塞接收一条原始数据报；当前无数据时返回 false
-  bool receive(UdpDatagram &datagram);
+  // 非阻塞接收一条原始数据报
+  std::optional<UdpDatagram> receive();
 
   // 向指定地址发送一条完整原始数据报
   bool send(const sockaddr_in &destination, const void *data,

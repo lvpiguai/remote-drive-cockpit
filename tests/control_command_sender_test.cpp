@@ -1,4 +1,4 @@
-#include "cockpit/control_command_sender.h"
+#include "control_command_sender.h"
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -6,7 +6,7 @@
 
 #include <cassert>
 
-#include "protocol/udp_codec.h"
+#include "udp_codec.h"
 
 namespace {
 
@@ -39,7 +39,7 @@ int main() {
   ControlCommandSender sender(sender_channel);
   pb::RemoteDriveControlCommand command;
   command.set_cockpit_id("cockpit_01");
-  command.set_remote_mode(pb::REMOTE_MODE_ENTER);
+  command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_ENTER);
   command.set_steering_angle(12.5);
 
   // 首条控制指令使用序号 1，并能由接收端完整解码
@@ -48,15 +48,15 @@ int main() {
   assert(first_sequence && *first_sequence == 1);
 
   waitUntilReadable(receiver_channel);
-  UdpDatagram datagram;
-  assert(receiver_channel.receive(datagram));
+  const auto datagram = receiver_channel.receive();
+  assert(datagram);
 
-  const auto decoded = udp_codec::decodePacket(datagram.payload.data(),
-                                               datagram.payload.size());
+  const auto decoded = udp_codec::decodePacket(datagram->payload.data(),
+                                               datagram->payload.size());
   assert(decoded);
   assert(decoded->body_case() == pb::UdpPacket::kControl);
   assert(decoded->sequence() == 1);
-  assert(decoded->control().remote_mode() == pb::REMOTE_MODE_ENTER);
+  assert(decoded->control().remote_mode_request() == pb::REMOTE_MODE_REQUEST_ENTER);
   assert(decoded->control().steering_angle() == 12.5);
 
   // 后续发送沿用同一发送器并递增控制序号

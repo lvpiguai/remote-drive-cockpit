@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "cockpit/vehicle_online_status.h"
+#include "vehicle_online_status.h"
 #include "remote_drive.pb.h"
 
 namespace cockpit_web {

@@ -1,4 +1,4 @@
-#include "cockpit/cockpit_web_protocol.h"
+#include "cockpit_web_protocol.h"
 
 #include <cassert>
 #include <string>
@@ -46,7 +46,7 @@ int main() {
   control.set_brake_percent(30);
   control.set_gear(pb::GEAR_DRIVE_1);
   control.set_bucket(pb::BUCKET_UP);
-  control.set_remote_mode(pb::REMOTE_MODE_ENTER);
+  control.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_ENTER);
   control.set_horn(pb::SWITCH_ON);
   control.set_light_near(pb::SWITCH_ON);
   const std::string control_json =

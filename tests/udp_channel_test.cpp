@@ -1,4 +1,4 @@
-#include "cockpit/udp_channel.h"
+#include "udp_channel.h"
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -32,13 +32,13 @@ int main() {
   pollfd channel_poll{channel.fd(), POLLIN, 0};
   assert(poll(&channel_poll, 1, 1000) == 1);
 
-  UdpDatagram datagram;
-  assert(channel.receive(datagram));
-  assert(datagram.payload.size() == sizeof(request));
-  assert(std::memcmp(datagram.payload.data(), request, sizeof(request)) == 0);
+  const auto datagram = channel.receive();
+  assert(datagram);
+  assert(datagram->payload.size() == sizeof(request));
+  assert(std::memcmp(datagram->payload.data(), request, sizeof(request)) == 0);
 
   constexpr char response[] = "control-command";
-  assert(channel.send(datagram.source, response, sizeof(response)));
+  assert(channel.send(datagram->source, response, sizeof(response)));
 
   pollfd peer_poll{peer_fd, POLLIN, 0};
   assert(poll(&peer_poll, 1, 1000) == 1);

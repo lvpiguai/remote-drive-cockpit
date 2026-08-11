@@ -1,4 +1,4 @@
-#include "devices/input_device_reader.h"
+#include "input_device_reader.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -80,7 +80,9 @@ PovDirection hatToDirection(std::int32_t x, std::int32_t y) {
 }  // namespace
 
 // 创建并打开指定的输入设备
-EvdevReader::EvdevReader(const std::string &path) { openDevice(path); }
+InputDeviceReader::InputDeviceReader(const std::string &path) {
+  openDevice(path);
+}
 
 // 保存各控制轴的原始范围，供后续事件归一化使用
 void InputEventProcessor::setAxisRange(std::uint16_t code, AxisRange range) {
@@ -144,12 +146,12 @@ bool InputEventProcessor::consume(const input_event &event,
 }
 
 // 关闭持有的输入设备
-EvdevReader::~EvdevReader() {
+InputDeviceReader::~InputDeviceReader() {
   if (fd_ >= 0) close(fd_);
 }
 
 // 打开 eventX，读取轴范围，并请求将自动回正强度设为 30%
-bool EvdevReader::openDevice(const std::string &path) {
+bool InputDeviceReader::openDevice(const std::string &path) {
   path_ = path;
 
   // 关闭之前打开的设备
@@ -181,7 +183,7 @@ bool EvdevReader::openDevice(const std::string &path) {
 }
 
 // 查询并缓存 ABS_X、ABS_Y、ABS_Z 和 ABS_RZ 的原始范围
-bool EvdevReader::loadAxisRanges() {
+bool InputDeviceReader::loadAxisRanges() {
   for (const int code : {ABS_X, ABS_Y, ABS_Z, ABS_RZ}) {
     input_absinfo info{};
     if (ioctl(fd_, EVIOCGABS(code), &info) < 0) {
@@ -200,7 +202,7 @@ bool EvdevReader::loadAxisRanges() {
 }
 
 // 读取当前所有可用事件，每遇到 SYN_REPORT 输出一帧完整状态
-std::vector<InputDeviceState> EvdevReader::readAvailable() {
+std::vector<InputDeviceState> InputDeviceReader::readAvailable() {
   std::vector<InputDeviceState> states;
   if (fd_ < 0) return states;
 

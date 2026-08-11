@@ -16,7 +16,7 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/remote_drive.proto)
 
 add_library(cockpit_protocol
     ${PROTO_SRCS}
-    src/protocol/udp_codec.cpp
+    src/udp_codec.cpp
 )
 
 target_include_directories(cockpit_protocol PUBLIC
@@ -27,7 +27,7 @@ target_include_directories(cockpit_protocol PUBLIC
 target_link_libraries(cockpit_protocol PUBLIC ${Protobuf_LIBRARIES})
 
 add_library(cockpit_common
-    src/common/websocket_server.cpp
+    src/websocket_server.cpp
 )
 
 target_include_directories(cockpit_common PUBLIC
@@ -36,7 +36,7 @@ target_include_directories(cockpit_common PUBLIC
 target_link_libraries(cockpit_common PUBLIC OpenSSL::Crypto)
 
 add_library(cockpit_devices
-    src/devices/input_device_reader.cpp
+    src/input_device_reader.cpp
 )
 
 target_include_directories(cockpit_devices PUBLIC
@@ -44,13 +44,13 @@ target_include_directories(cockpit_devices PUBLIC
 )
 
 add_library(cockpit_core
-    src/cockpit/cockpit.cpp
-    src/cockpit/cockpit_web_protocol.cpp
-    src/cockpit/control_command_generator.cpp
-    src/cockpit/control_command_sender.cpp
-    src/cockpit/udp_channel.cpp
-    src/cockpit/vehicle_heartbeat_cache.cpp
-    src/cockpit/vehicle_state_cache.cpp
+    src/cockpit.cpp
+    src/cockpit_web_protocol.cpp
+    src/control_command_generator.cpp
+    src/control_command_sender.cpp
+    src/udp_channel.cpp
+    src/vehicle_heartbeat_cache.cpp
+    src/vehicle_state_cache.cpp
 )
 
 target_include_directories(cockpit_core PUBLIC
@@ -67,44 +67,44 @@ target_link_libraries(cockpit PRIVATE cockpit_core)
 
 if(BUILD_TESTING)
   add_executable(input_pipeline_test
-      tests/cockpit/input_pipeline_test.cpp
+      tests/input_pipeline_test.cpp
   )
   target_link_libraries(input_pipeline_test PRIVATE cockpit_core)
   add_test(NAME input_pipeline_test COMMAND input_pipeline_test)
 
   add_executable(control_command_sender_test
-      tests/cockpit/control_command_sender_test.cpp
+      tests/control_command_sender_test.cpp
   )
   target_link_libraries(control_command_sender_test PRIVATE cockpit_core)
   add_test(NAME control_command_sender_test COMMAND control_command_sender_test)
 
   add_executable(cockpit_web_protocol_test
-      tests/cockpit/cockpit_web_protocol_test.cpp
+      tests/cockpit_web_protocol_test.cpp
   )
   target_link_libraries(cockpit_web_protocol_test PRIVATE cockpit_core)
   add_test(NAME cockpit_web_protocol_test COMMAND cockpit_web_protocol_test)
 
   add_executable(vehicle_heartbeat_cache_test
-      tests/cockpit/vehicle_heartbeat_cache_test.cpp
+      tests/vehicle_heartbeat_cache_test.cpp
   )
   target_link_libraries(vehicle_heartbeat_cache_test PRIVATE cockpit_core)
   add_test(NAME vehicle_heartbeat_cache_test
            COMMAND vehicle_heartbeat_cache_test)
 
   add_executable(vehicle_state_cache_test
-      tests/cockpit/vehicle_state_cache_test.cpp
+      tests/vehicle_state_cache_test.cpp
   )
   target_link_libraries(vehicle_state_cache_test PRIVATE cockpit_core)
   add_test(NAME vehicle_state_cache_test COMMAND vehicle_state_cache_test)
 
   add_executable(udp_channel_test
-      tests/cockpit/udp_channel_test.cpp
+      tests/udp_channel_test.cpp
   )
   target_link_libraries(udp_channel_test PRIVATE cockpit_core)
   add_test(NAME udp_channel_test COMMAND udp_channel_test)
 
   add_executable(input_device_reader_test
-      tests/devices/input_device_reader_test.cpp
+      tests/input_device_reader_test.cpp
   )
   target_link_libraries(input_device_reader_test PRIVATE cockpit_devices)
   add_test(NAME input_device_reader_test COMMAND input_device_reader_test)

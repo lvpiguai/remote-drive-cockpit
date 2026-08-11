@@ -1,5 +1,5 @@
-#include "cockpit/control_command_generator.h"
-#include "cockpit/input_device_state.h"
+#include "control_command_generator.h"
+#include "input_device_state.h"
 
 #include <cassert>
 #include <chrono>
@@ -182,7 +182,7 @@ int main() {
   }
   encoder.encoder_confirm_pressed = true;
   const auto enter_command = applyInput(generator, encoder, start + 6200ms);
-  assert(enter_command.remote_mode() == pb::REMOTE_MODE_ENTER);
+  assert(enter_command.remote_mode_request() == pb::REMOTE_MODE_REQUEST_ENTER);
   // 新的远控会话不得继承上一轮的驻车、急停、挡位或辅助开关状态
   assert(near(enter_command.steering_angle(), 0));
   assert(near(enter_command.accelerator_percent(), 0));
@@ -198,5 +198,5 @@ int main() {
   const auto reset_command = generator.generate(start + 7s);
   assert(reset_command.gear() == pb::GEAR_NEUTRAL);
   assert(is(reset_command.parking(), pb::SWITCH_NO_CONTROL));
-  assert(reset_command.remote_mode() == pb::REMOTE_MODE_NO_CONTROL);
+  assert(reset_command.remote_mode_request() == pb::REMOTE_MODE_REQUEST_NONE);
 }

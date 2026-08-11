@@ -7,23 +7,21 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <vector>
 
-#include "cockpit/control_command_generator.h"
-#include "cockpit/control_command_sender.h"
-#include "cockpit/udp_channel.h"
-#include "cockpit/vehicle_heartbeat_cache.h"
-#include "cockpit/vehicle_state_cache.h"
-#include "common/websocket_server.h"
-#include "devices/input_device_reader.h"
+#include "control_command_generator.h"
+#include "control_command_sender.h"
+#include "input_device_reader.h"
 #include "remote_drive.pb.h"
+#include "vehicle_heartbeat_cache.h"
+#include "vehicle_state_cache.h"
+#include "websocket_server.h"
+#include "udp_channel.h"
 
 class Cockpit {
 public:
-  // 使用指定输入设备、车辆列表和本地通信端口创建驾驶舱
+  // 使用指定输入设备和本地通信端口创建驾驶舱
   Cockpit(std::string cockpit_id, std::string input_device_path,
-          std::vector<std::string> vehicle_ids, std::uint16_t vehicle_udp_port,
-          std::uint16_t websocket_port);
+          std::uint16_t vehicle_udp_port, std::uint16_t websocket_port);
 
   // 禁止复制
   Cockpit(const Cockpit &) = delete;
@@ -81,8 +79,8 @@ private:
   void updateWebConnectionState();
 
   WebSocketServer web_server_;                     // Web 控制页服务
-  input_device::EvdevReader input_device_reader_;  // 设备采集层
-  UdpChannel vehicle_channel_;                     // 车辆 UDP 通道
+  input_device::InputDeviceReader input_device_reader_;  // 输入设备读取器
+  UdpChannel udp_channel_;                         // 车辆 UDP 通道
   ControlCommandGenerator command_generator_;      // 控制指令生成
   ControlCommandSender command_sender_;            // 控制指令发送
   VehicleHeartbeatCache heartbeat_cache_;          // 心跳缓存

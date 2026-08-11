@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-#include "cockpit/input_device_state.h"
+#include "input_device_state.h"
 #include "remote_drive.pb.h"
 
 // 根据操作输入生成远程控制指令
@@ -45,8 +45,8 @@ class ControlCommandGenerator {
   // 更新开关型控制
   void updateToggleControls();
 
-  // 更新远控模式
-  void updateRemoteMode(Clock::time_point now);
+  // 更新远控模式请求
+  void updateRemoteModeRequest(Clock::time_point now);
 
   // 按安全初始值准备新的远控会话
   void resetCommandForRemoteEntry();
