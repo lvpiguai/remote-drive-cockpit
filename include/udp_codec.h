@@ -12,10 +12,6 @@ namespace udp_codec {
 
 using PacketBytes = std::vector<std::uint8_t>;
 
-// 将车辆在线心跳封装并序列化为 UDP 负载
-PacketBytes encodeHeartbeat(const std::string &vehicle_id,
-                            std::uint32_t sequence);
-
 // 将驾驶舱控制指令封装并序列化为 UDP 负载
 PacketBytes encodeControlCommand(
     const remote_drive::protocol::RemoteDriveControlCommand &command,

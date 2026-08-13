@@ -1,327 +1,225 @@
 #include "websocket_server.h"
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <openssl/evp.h>
-#include <openssl/sha.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <boost/asio.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/websocket.hpp>
 
-#include <cerrno>
-#include <cstdio>
-#include <cstring>
-#include <limits>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
 
-namespace {
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+namespace websocket = beast::websocket;
+using tcp = asio::ip::tcp;
 
-// WebSocket 协议参数
 constexpr std::size_t kMaxMessageSize = 64 * 1024;
-constexpr char kWebSocketGuid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-// 将 socket 切换为非阻塞模式
-bool setNonBlocking(int fd) {
-  const int flags = fcntl(fd, F_GETFL, 0);
-  return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
-}
+// 单个浏览器连接，由异步回调共同持有
+class WebSocketSession
+    : public std::enable_shared_from_this<WebSocketSession> {
+public:
+  using MessageHandler = std::function<void(std::string)>;
 
-// 循环发送直至完整写出缓冲区
-bool sendAll(int fd, const std::string &data) {
-  std::size_t offset = 0;
-  while (offset < data.size()) {
-    const ssize_t sent =
-        send(fd, data.data() + offset, data.size() - offset, MSG_NOSIGNAL);
-    if (sent > 0) {
-      offset += static_cast<std::size_t>(sent);
-      continue;
-    }
-    if (sent < 0 && errno == EINTR) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
+  // 保存连接和消息回调
+  WebSocketSession(tcp::socket socket, MessageHandler message_handler)
+      : stream_(std::move(socket)),
+        message_handler_(std::move(message_handler)) {}
 
-// 移除字符串首尾空白
-std::string trim(std::string value) {
-  const std::size_t begin = value.find_first_not_of(" \t\r\n");
-  if (begin == std::string::npos) {
-    return {};
-  }
-  const std::size_t end = value.find_last_not_of(" \t\r\n");
-  return value.substr(begin, end - begin + 1);
-}
+  // 完成握手并开始读消息
+  void start() {
+    // 限制单条消息大小
+    stream_.read_message_max(kMaxMessageSize);
 
-// 根据客户端密钥生成 WebSocket 握手摘要
-std::string websocketAccept(const std::string &key) {
-  const std::string source = key + kWebSocketGuid;
-  unsigned char digest[SHA_DIGEST_LENGTH]{};
-  SHA1(reinterpret_cast<const unsigned char *>(source.data()), source.size(),
-       digest);
+    // 设置服务端超时
+    stream_.set_option(
+        websocket::stream_base::timeout::suggested(beast::role_type::server));
 
-  unsigned char encoded[4 * ((SHA_DIGEST_LENGTH + 2) / 3) + 1]{};
-  const int size = EVP_EncodeBlock(encoded, digest, SHA_DIGEST_LENGTH);
-  return std::string(reinterpret_cast<char *>(encoded), size);
-}
-
-}  // namespace
-
-// 关闭客户端和监听 socket
-WebSocketServer::~WebSocketServer() {
-  closeClient();
-  if (listener_fd_ >= 0) {
-    close(listener_fd_);
-  }
-}
-
-// 在本机指定端口启动 WebSocket 监听
-bool WebSocketServer::startListening(std::uint16_t port) {
-  // 创建 TCP socket
-  listener_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-  if (listener_fd_ < 0) {
-    perror("websocket socket");
-    return false;
-  }
-
-  // 允许快速重启复用端口
-  int reuse = 1;
-  setsockopt(listener_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-  // 配置本机监听地址
-  sockaddr_in address{};
-  address.sin_family = AF_INET;
-  address.sin_port = htons(port);
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-  // 绑定端口并启动非阻塞监听
-  if (bind(listener_fd_, reinterpret_cast<sockaddr *>(&address),
-           sizeof(address)) < 0 ||
-      listen(listener_fd_, 1) < 0 || !setNonBlocking(listener_fd_)) {
-    perror("websocket listen");
-    close(listener_fd_);
-    listener_fd_ = -1;
-    return false;
-  }
-  return true;
-}
-
-// 接受新客户端并替换旧连接
-bool WebSocketServer::acceptClient() {
-  // 准备客户端地址
-  sockaddr_in address{};
-  socklen_t address_size = sizeof(address);
-
-  // 接受新连接
-  const int next_fd = accept(
-      listener_fd_, reinterpret_cast<sockaddr *>(&address), &address_size);
-  if (next_fd < 0) {
-    return false;
-  }
-
-  // 替换当前客户端
-  closeClient();
-  client_fd_ = next_fd;
-
-  // 切换为非阻塞模式
-  if (!setNonBlocking(client_fd_)) {
-    closeClient();
-    return false;
-  }
-  return true;
-}
-
-// 读取连接数据并向上层分发完整消息
-void WebSocketServer::receiveMessages(const MessageCallback &callback) {
-  // 忽略未建立的客户端连接
-  if (client_fd_ < 0) {
-    return;
-  }
-
-  // 读取接收数据
-  char tmp_buffer[4096];
-  while (true) {
-    const ssize_t size =
-        recv(client_fd_, tmp_buffer, sizeof(tmp_buffer), 0);
-    if (size > 0) {
-      buffer_.append(tmp_buffer, static_cast<std::size_t>(size));
-      if (buffer_.size() > kMaxMessageSize) {
-        closeClient();
+    // 等待握手完成
+    const auto self = shared_from_this();
+    stream_.async_accept([self](beast::error_code error) {
+      if (error) {
+        self->close();
         return;
       }
-      continue;
-    }
-    if (size == 0) {
-      closeClient();
-      return;
-    }
-    if (errno == EINTR) {
-      continue;
-    }
-    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-      closeClient();
-      return;
-    }
-    break;
+
+      // 握手成功后启动读取
+      self->connected_ = true;
+      self->readNext();
+    });
   }
 
-  // 完成 WebSocket 握手
-  if (!handshake_done_ && !completeHandshake()) {
-    return;
+  // 文本入队等待发送
+  bool sendText(std::string payload) {
+    if (!connected_)
+      return false;
+
+    // 队列空闲时立即启动写入
+    write_queue_.push_back(std::move(payload));
+    if (write_queue_.size() == 1)
+      writeNext();
+    return true;
   }
 
-  // 处理完整消息帧
-  if (handshake_done_) {
-    processFrames(callback);
+  // 关闭底层 TCP 连接
+  void close() {
+    connected_ = false;
+    beast::error_code error;
+
+    // 忽略关闭错误
+    beast::get_lowest_layer(stream_).shutdown(tcp::socket::shutdown_both,
+                                              error);
+    beast::get_lowest_layer(stream_).close(error);
   }
+
+  // 判断连接是否仍可发送
+  bool connected() const { return connected_; }
+
+private:
+  // 异步读取下一条完整消息
+  void readNext() {
+    // 回调期间保持会话存活
+    const auto self = shared_from_this();
+    stream_.async_read(
+        read_buffer_, [self](beast::error_code error, std::size_t) {
+          if (error) {
+            self->close();
+            return;
+          }
+
+          // 转交完整文本消息
+          self->message_handler_(
+              beast::buffers_to_string(self->read_buffer_.data()));
+
+          // 清空缓冲并继续读取
+          self->read_buffer_.consume(self->read_buffer_.size());
+          self->readNext();
+        });
+  }
+
+  // 串行发送队首文本消息
+  void writeNext() {
+    // 本服务只发送文本帧
+    stream_.text(true);
+
+    // 回调期间保持队列有效
+    const auto self = shared_from_this();
+    stream_.async_write(
+        asio::buffer(write_queue_.front()),
+        [self](beast::error_code error, std::size_t) {
+          if (error) {
+            // 写失败后丢弃队列
+            self->close();
+            self->write_queue_.clear();
+            return;
+          }
+
+          // 继续发送剩余消息
+          self->write_queue_.pop_front();
+          if (!self->write_queue_.empty())
+            self->writeNext();
+        });
+  }
+
+  websocket::stream<tcp::socket> stream_;  // WebSocket 流
+  beast::flat_buffer read_buffer_;         // 读取缓冲
+  std::deque<std::string> write_queue_;    // 待发送文本队列
+  MessageHandler message_handler_;         // 上层消息处理
+  bool connected_ = false;                 // 握手后的连接状态
+};
+
+// 创建监听器并绑定事件循环
+WebSocketServer::WebSocketServer() : acceptor_(io_context_) {}
+
+// 析构时由成员对象释放通信资源
+WebSocketServer::~WebSocketServer() = default;
+
+// 启动本机 WebSocket 监听
+bool WebSocketServer::startListening(std::uint16_t port) {
+  beast::error_code error;
+
+  // 仅监听本机
+  const tcp::endpoint endpoint(asio::ip::make_address("127.0.0.1"), port);
+
+  // 创建监听 socket
+  acceptor_.open(endpoint.protocol(), error);
+  if (error)
+    return false;
+
+  // 允许复用端口
+  acceptor_.set_option(asio::socket_base::reuse_address(true), error);
+  if (error)
+    return false;
+
+  // 绑定本机端口并开始监听
+  acceptor_.bind(endpoint, error);
+  if (error)
+    return false;
+  acceptor_.listen(1, error);
+  if (error)
+    return false;
+
+  // 等待首个连接
+  acceptNext();
+  return true;
 }
 
-// 向当前客户端发送文本消息
+// 推进当前已就绪的异步事件
+void WebSocketServer::poll() {
+  // 只处理已就绪事件
+  io_context_.restart();
+  io_context_.poll();
+}
+
+// 取出已缓存的页面消息
+std::optional<std::string> WebSocketServer::takeMessage() {
+  if (pending_web_messages_.empty())
+    return std::nullopt;
+
+  std::string message = std::move(pending_web_messages_.front());
+  pending_web_messages_.pop_front();
+  return message;
+}
+
+// 向当前浏览器连接发送文本
 bool WebSocketServer::sendText(const std::string &payload) {
-  return sendFrame(0x1, payload);
+  return session_ && session_->sendText(payload);
 }
 
-// 关闭当前客户端并清空解析状态
+// 主动关闭当前浏览器连接
 void WebSocketServer::closeClient() {
-  if (client_fd_ >= 0) {
-    close(client_fd_);
-  }
-  client_fd_ = -1;
-  handshake_done_ = false;
-  buffer_.clear();
+  if (session_)
+    session_->close();
+
+  // 清空连接状态
+  session_.reset();
+  pending_web_messages_.clear();
 }
 
-// 解析 HTTP Upgrade 请求并完成握手
-bool WebSocketServer::completeHandshake() {
-  // 等待完整 HTTP 请求
-  const std::size_t request_end = buffer_.find("\r\n\r\n");
-  if (request_end == std::string::npos) {
-    return false;
-  }
-
-  // 提取握手密钥
-  const std::string request = buffer_.substr(0, request_end + 4);
-  constexpr char key_header[] = "Sec-WebSocket-Key:";
-  const std::size_t key_pos = request.find(key_header);
-  if (request.rfind("GET ", 0) != 0 || key_pos == std::string::npos) {
-    closeClient();
-    return false;
-  }
-
-  const std::size_t value_begin = key_pos + std::strlen(key_header);
-  const std::size_t value_end = request.find("\r\n", value_begin);
-  if (value_end == std::string::npos) {
-    closeClient();
-    return false;
-  }
-
-  const std::string key =
-      trim(request.substr(value_begin, value_end - value_begin));
-
-  // 返回升级响应
-  const std::string response =
-      "HTTP/1.1 101 Switching Protocols\r\n"
-      "Upgrade: websocket\r\n"
-      "Connection: Upgrade\r\n"
-      "Sec-WebSocket-Accept: " +
-      websocketAccept(key) + "\r\n\r\n";
-  if (!sendAll(client_fd_, response)) {
-    closeClient();
-    return false;
-  }
-
-  buffer_.erase(0, request_end + 4);
-  handshake_done_ = true;
-  return true;
+// 判断当前浏览器连接是否可用
+bool WebSocketServer::connected() const {
+  return session_ && session_->connected();
 }
 
-// 从接收缓冲区解析并处理 WebSocket 帧
-bool WebSocketServer::processFrames(const MessageCallback &callback) {
-  while (buffer_.size() >= 2) {
-    // 解析帧头
-    const auto *bytes = reinterpret_cast<const unsigned char *>(buffer_.data());
-    const bool final = (bytes[0] & 0x80u) != 0;
-    const std::uint8_t opcode = bytes[0] & 0x0fu;
-    const bool masked = (bytes[1] & 0x80u) != 0;
-    std::uint64_t payload_size = bytes[1] & 0x7fu;
-    std::size_t header_size = 2;
-
-    // 解析扩展长度
-    if (payload_size == 126) {
-      if (buffer_.size() < 4) return true;
-      payload_size = (static_cast<std::uint64_t>(bytes[2]) << 8) | bytes[3];
-      header_size = 4;
-    } else if (payload_size == 127) {
-      if (buffer_.size() < 10) return true;
-      payload_size = 0;
-      for (int i = 2; i < 10; ++i) {
-        payload_size = (payload_size << 8) | bytes[i];
-      }
-      header_size = 10;
-    }
-
-    // 校验帧格式
-    if (!masked || !final || payload_size > kMaxMessageSize ||
-        payload_size > std::numeric_limits<std::size_t>::max()) {
+// 接受新连接并替换当前浏览器会话
+void WebSocketServer::acceptNext() {
+  acceptor_.async_accept([this](beast::error_code error, tcp::socket socket) {
+    if (!error) {
+      // 新连接替换旧连接
       closeClient();
-      return false;
+
+      // 页面消息先入队
+      session_ = std::make_shared<WebSocketSession>(
+          std::move(socket), [this](std::string message) {
+            pending_web_messages_.push_back(std::move(message));
+          });
+      session_->start();
     }
 
-    // 等待完整负载
-    if (buffer_.size() < header_size + 4 + payload_size) {
-      return true;
-    }
-
-    // 解码掩码负载
-    const unsigned char *mask = bytes + header_size;
-    const std::size_t payload_begin = header_size + 4;
-    std::string payload(static_cast<std::size_t>(payload_size), '\0');
-    for (std::size_t i = 0; i < payload.size(); ++i) {
-      payload[i] = buffer_[payload_begin + i] ^ mask[i % 4];
-    }
-    buffer_.erase(0, payload_begin + payload.size());
-
-    // 处理帧类型
-    if (opcode == 0x1) {
-      callback(payload);
-    } else if (opcode == 0x8) {
-      sendFrame(0x8, payload);
-      closeClient();
-      return false;
-    } else if (opcode == 0x9) {
-      if (!sendFrame(0xA, payload)) {
-        closeClient();
-        return false;
-      }
-    } else if (opcode != 0xA) {
-      closeClient();
-      return false;
-    }
-  }
-  return true;
-}
-
-// 向客户端发送一个 WebSocket 帧
-bool WebSocketServer::sendFrame(std::uint8_t opcode,
-                                const std::string &payload) {
-  if (payload.size() > kMaxMessageSize || client_fd_ < 0 || !handshake_done_) {
-    return false;
-  }
-
-  const std::uint64_t payload_size = payload.size();
-  std::string frame;
-  frame.push_back(static_cast<char>(0x80u | opcode));
-  if (payload_size <= 125) {
-    frame.push_back(static_cast<char>(payload_size));
-  } else if (payload_size <= 0xffff) {
-    frame.push_back(static_cast<char>(126));
-    frame.push_back(static_cast<char>((payload_size >> 8) & 0xff));
-    frame.push_back(static_cast<char>(payload_size & 0xff));
-  } else {
-    frame.push_back(static_cast<char>(127));
-    for (int shift = 56; shift >= 0; shift -= 8) {
-      frame.push_back(static_cast<char>((payload_size >> shift) & 0xff));
-    }
-  }
-  frame += payload;
-  return sendAll(client_fd_, frame);
+    // 继续等待连接
+    acceptNext();
+  });
 }

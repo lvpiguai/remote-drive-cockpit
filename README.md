@@ -21,6 +21,12 @@ web/      # 驾驶舱 Web 页面
 
 ## 构建
 
+Ubuntu 需要安装 Boost.Beast 依赖：
+
+```bash
+sudo apt install libboost-dev libboost-system-dev
+```
+
 ```bash
 cmake -S . -B build
 cmake --build build
@@ -35,5 +41,5 @@ ctest --test-dir build --output-on-failure
   /dev/input/eventX
 ```
 
-Web 页面位于 `web/`，用于车辆选择和状态展示。驾驶舱通过车辆心跳动态发现车号
+Web 页面位于 `web/`，用于车辆选择和状态展示。驾驶舱通过车辆状态动态发现车号
 和车辆 UDP 地址，控制输入来自驾驶舱进程读取到的真实 Linux 输入设备。

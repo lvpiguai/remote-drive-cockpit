@@ -1,15 +1,20 @@
 #pragma once
 
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+
 #include <cstdint>
-#include <functional>
+#include <deque>
+#include <memory>
+#include <optional>
 #include <string>
+
+class WebSocketSession;
 
 // 本机单客户端 WebSocket 服务，不包含业务消息解析
 class WebSocketServer {
  public:
-  using MessageCallback = std::function<void(const std::string &)>;
-
-  WebSocketServer() = default;
+  WebSocketServer();
 
   // 关闭通信资源
   ~WebSocketServer();
@@ -23,11 +28,11 @@ class WebSocketServer {
   // 启动监听
   bool startListening(std::uint16_t port);
 
-  // 接受客户端
-  bool acceptClient();
+  // 推进异步网络事件
+  void poll();
 
-  // 接收消息
-  void receiveMessages(const MessageCallback &callback);
+  // 取出一条页面消息
+  std::optional<std::string> takeMessage();
 
   // 发送文本消息
   bool sendText(const std::string &payload);
@@ -35,27 +40,15 @@ class WebSocketServer {
   // 关闭客户端
   void closeClient();
 
-  // 获取监听 socket
-  int listenerFd() const { return listener_fd_; }
-
-  // 获取客户端 socket
-  int clientFd() const { return client_fd_; }
-
   // 判断连接是否就绪
-  bool connected() const { return handshake_done_; }
+  bool connected() const;
 
  private:
-  // 完成握手
-  bool completeHandshake();
+  // 持续等待下一个浏览器连接
+  void acceptNext();
 
-  // 处理消息帧
-  bool processFrames(const MessageCallback &callback);
-
-  // 发送消息帧
-  bool sendFrame(std::uint8_t opcode, const std::string &payload);
-
-  int listener_fd_ = -1;         // 监听 socket
-  int client_fd_ = -1;           // 客户端 socket
-  bool handshake_done_ = false;  // 握手已完成
-  std::string buffer_;           // 接收缓冲区
+  boost::asio::io_context io_context_;                  // 异步事件循环
+  boost::asio::ip::tcp::acceptor acceptor_;             // TCP 监听器
+  std::shared_ptr<WebSocketSession> session_;           // 当前浏览器连接
+  std::deque<std::string> pending_web_messages_;        // 待处理页面消息
 };

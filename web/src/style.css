@@ -21,7 +21,7 @@ button { cursor: pointer; }
 .detail-online.offline { color: #ef8b8b; }
 .detail-online.offline::before { background: #d95a5a; box-shadow: none; }
 .detail-statuses { justify-self: end; display: flex; align-items: center; gap: 12px; }
-.layout { display: grid; grid-template-columns: minmax(720px, 1.45fr) minmax(340px, .55fr); gap: 16px; max-width: 1500px; margin: auto; }
+.layout { display: grid; grid-template-columns: 1fr; gap: 16px; max-width: 900px; margin: auto; }
 .panel { border: 1px solid #273746; border-radius: 14px; background: rgba(15, 22, 30, .9); box-shadow: 0 20px 50px rgba(0,0,0,.25); }
 .panel-title { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #243340; color: #eaf3fb; font-size: 15px; }
 .input-stage { overflow: hidden; }
@@ -94,7 +94,6 @@ button { cursor: pointer; }
 .fleet-card:hover:not(:disabled) { transform: translateY(-3px); border-color: #3b98b9; box-shadow: 0 22px 52px rgba(0, 0, 0, .3), 0 0 22px rgba(46, 151, 190, .1); }
 .fleet-card.offline { cursor: default; filter: saturate(.35); opacity: .58; }
 .fleet-card.busy { cursor: not-allowed; border-color: #584744; filter: saturate(.6); opacity: .72; }
-.fleet-card.pending { border-color: #4eb6dc; }
 .fleet-card-topline { position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, transparent, #42bde8, transparent); opacity: .7; }
 .fleet-card-heading { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
 .fleet-vehicle-icon { position: relative; display: block; width: 58px; height: 46px; border: 1px solid #31566a; border-radius: 9px; background: rgba(22, 67, 86, .38); }
@@ -106,7 +105,7 @@ button { cursor: pointer; }
 .fleet-online { align-self: start; padding: 4px 8px; border: 1px solid rgba(55, 212, 138, .3); border-radius: 999px; background: rgba(42, 151, 103, .14); color: #74ddaF; font-size: 10px; }
 .fleet-online.offline { border-color: #4b5961; background: #283139; color: #8a969d; }
 .fleet-card.busy .fleet-online { border-color: #805a4c; background: rgba(128, 73, 48, .18); color: #e2a88f; }
-.fleet-card-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fleet-card-meta { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .fleet-card-meta > span { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid #243945; border-radius: 8px; background: rgba(7, 17, 23, .55); }
 .fleet-card-meta strong { color: #b6cbd6; font-size: 12px; font-weight: 500; }
 .fleet-card-action { display: flex; align-items: center; justify-content: space-between; align-self: end; padding-top: 15px; border-top: 1px solid #263c48; color: #69cbea; font-size: 12px; }

@@ -19,46 +19,9 @@ namespace {
 namespace pb = remote_drive::protocol;
 
 constexpr auto kVehicleOnlineTimeout = std::chrono::milliseconds(2500);
-constexpr auto kVehicleListInterval = std::chrono::milliseconds(200);
-constexpr auto kControlInterval = std::chrono::milliseconds(100);
-
-// 将驾驶模式转换为日志文本
-const char *modeName(pb::DriveMode mode) {
-  switch (mode) {
-  case pb::DRIVE_MODE_MANUAL:
-    return "MANUAL";
-  case pb::DRIVE_MODE_STANDBY:
-    return "STANDBY";
-  case pb::DRIVE_MODE_REMOTE:
-    return "REMOTE";
-  case pb::DRIVE_MODE_AUTO:
-    return "AUTO";
-  default:
-    break;
-  }
-  return "UNKNOWN";
-}
-
-// 将挡位转换为日志文本
-const char *gearName(pb::Gear gear) {
-  switch (gear) {
-  case pb::GEAR_NEUTRAL:
-    return "N";
-  case pb::GEAR_REVERSE_1:
-    return "R1";
-  case pb::GEAR_REVERSE_2:
-    return "R2";
-  case pb::GEAR_DRIVE_1:
-    return "D1";
-  case pb::GEAR_DRIVE_2:
-    return "D2";
-  case pb::GEAR_DRIVE_3:
-    return "D3";
-  default:
-    break;
-  }
-  return "UNKNOWN";
-}
+constexpr auto kVehicleListInterval = std::chrono::milliseconds(100);
+constexpr auto kControlInterval = std::chrono::milliseconds(20);
+constexpr int kPollTimeoutMs = 20;
 
 } // namespace
 
@@ -66,8 +29,7 @@ const char *gearName(pb::Gear gear) {
 Cockpit::Cockpit(std::string cockpit_id, std::string input_device_path,
                  std::uint16_t vehicle_udp_port, std::uint16_t websocket_port)
     : input_device_reader_(input_device_path),
-      command_sender_(udp_channel_),
-      heartbeat_cache_(kVehicleOnlineTimeout),
+      state_cache_(kVehicleOnlineTimeout),
       cockpit_id_(std::move(cockpit_id)), vehicle_udp_port_(vehicle_udp_port),
       websocket_port_(websocket_port) {}
 
@@ -77,23 +39,16 @@ int Cockpit::run() {
   if (!initialize())
     return 1;
 
-  std::cout << "驾驶舱 " << cockpit_id_
-            << " 已启动，Web 控制页：ws://127.0.0.1:" << websocket_port_
-            << "，输入设备：" << input_device_reader_.path()
-            << "，等待车辆心跳\n";
-
   // 持续运行事件循环
   while (true) {
-    // 组装监听端点
+    // 组装车辆通信和输入设备监听端点
     pollfd descriptors[] = {
         {udp_channel_.fd(), POLLIN, 0},
-        {web_server_.listenerFd(), POLLIN, 0},
-        {web_server_.clientFd(), POLLIN, 0},
         {input_device_reader_.fd(), POLLIN, 0},
     };
 
     // 等待通信事件
-    const int result = poll(descriptors, 4, 100);
+    const int result = poll(descriptors, 2, kPollTimeoutMs);
     if (result < 0) {
       perror("cockpit poll");
       return 1;
@@ -101,27 +56,36 @@ int Cockpit::run() {
 
     // 处理就绪事件
     if (descriptors[0].revents & POLLIN)
-      receiveVehiclePackets();
+      receiveVehicleStates();
     if (descriptors[1].revents & POLLIN)
-      web_server_.acceptClient();
-    if (descriptors[2].revents & (POLLIN | POLLHUP | POLLERR))
-      receiveWebMessages();
-    if (descriptors[3].revents & POLLIN)
       receiveInputDevice();
-    if (descriptors[3].revents & (POLLHUP | POLLERR | POLLNVAL)) {
-      deselectVehicle("输入设备断开");
-      std::cerr << "输入设备已断开，驾驶舱停止运行\n";
+    if (descriptors[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+      deselectVehicle();
       return 1;
     }
 
-    // 同步 Web 连接状态
-    updateWebConnectionState();
+    // 推进 WebSocket 事件并处理完整文本消息
+    web_server_.poll();
+    while (auto message = web_server_.takeMessage()) {
+      processWebMessage(*message);
+    }
 
-    // 使用同一时间点处理本轮车辆状态和周期任务
+    // Web 断开时退出当前车辆
+    if (!web_server_.connected())
+      deselectVehicle();
+
+    // 使用同一时间点处理本轮周期任务
     const auto now = Clock::now();
-    updateControl(now);
 
-    // 每 200ms 向 Web 推送完整车辆列表
+    // 状态新鲜时每 20ms 发送一次控制指令
+    if (selected_vehicle_id_ &&
+        state_cache_.isFresh(*selected_vehicle_id_) &&
+        command_generator_.hasInput() &&
+        now - last_control_sent_ >= kControlInterval) {
+      sendControlUpdate(now);
+    }
+
+    // 每 100ms 向 Web 推送完整车辆列表
     if (now - last_vehicle_list_sent_ >= kVehicleListInterval) {
       publishVehicleList(now);
     }
@@ -148,91 +112,44 @@ bool Cockpit::initialize() {
   return true;
 }
 
-// 接收并分发车辆数据
-void Cockpit::receiveVehiclePackets() {
+// 接收并处理车辆状态
+void Cockpit::receiveVehicleStates() {
+  // 读取并解码所有待处理数据
   while (const auto datagram = udp_channel_.receive()) {
     const auto packet = udp_codec::decodePacket(
         datagram->payload.data(), datagram->payload.size());
-    if (!packet)
+
+    // 忽略无效或非状态报文
+    if (!packet || packet->body_case() != pb::UdpPacket::kState)
       continue;
-    if (packet->body_case() == pb::UdpPacket::kHeartbeat) {
-      handleHeartbeat(packet->heartbeat().vehicle_id(), packet->sequence(),
-                      datagram->source);
-    } else if (packet->body_case() == pb::UdpPacket::kState) {
-      handleState(packet->state(), packet->sequence(), datagram->source);
+
+    const pb::ChassisState &state = packet->state();
+
+    // 保存合法状态并推送给 Web
+    if (!state_cache_.update(state, packet->sequence(), datagram->source))
+      continue;
+    web_server_.sendText(web_protocol::serializeVehicleState(state));
+
+    // 同步当前详情车辆的实际状态
+    if (selected_vehicle_id_ && *selected_vehicle_id_ == state.vehicle_id()) {
+      command_generator_.syncVehicleState(state);
     }
   }
 }
 
-// 更新车辆心跳
-void Cockpit::handleHeartbeat(const std::string &vehicle_id,
-                              std::uint32_t sequence,
-                              const sockaddr_in &source) {
-  // 心跳动态发现车辆，在线状态由周期快照统一推送
-  heartbeat_cache_.updateHeartbeat(vehicle_id, source, sequence);
-}
-
-// 解码并更新对应车辆的最新状态
-void Cockpit::handleState(const pb::ChassisState &state,
-                          std::uint32_t sequence,
-                          const sockaddr_in &source) {
-  // 校验协议、车辆归属和通信地址
-  if (!VehicleStateCache::isValidState(state))
-    return;
-
-  const std::string vehicle_id = state.vehicle_id();
-  if (!heartbeat_cache_.matchesVehicleAddress(vehicle_id, source))
-    return;
-
-  const auto *previous = state_cache_.record(vehicle_id);
-
-  // 状态关键量变化时输出终端事件
-  const bool discrete_changed =
-      !previous || state.drive_mode() != previous->state.drive_mode() ||
-      state.gear() != previous->state.gear() ||
-      state.parking() != previous->state.parking() ||
-      state.emergency() != previous->state.emergency() ||
-      state.controller_id() != previous->state.controller_id();
-  if (discrete_changed) {
-    std::cout << "[状态接收] vehicle=" << vehicle_id << " seq=" << sequence
-              << " mode=" << modeName(state.drive_mode())
-              << " speed=" << state.speed()
-              << " steering=" << state.steering_angle()
-              << " gear=" << gearName(state.gear())
-              << " parking=" << state.parking()
-              << " emergency=" << state.emergency()
-              << " controller=" << state.controller_id() << '\n';
+// 处理一条 Web 页面消息
+void Cockpit::processWebMessage(const std::string &message) {
+  const web_protocol::Command command = web_protocol::parseCommand(message);
+  switch (command.type) {
+  case web_protocol::CommandType::SELECT_VEHICLE:
+    selectVehicle(command.vehicle_id);
+    break;
+  case web_protocol::CommandType::DESELECT_VEHICLE:
+    deselectVehicle();
+    break;
+  case web_protocol::CommandType::UNKNOWN:
+    break;
   }
-
-  // 所有合法车辆状态都独立保存并推送，不依赖当前选择
-  state_cache_.update(vehicle_id, state, sequence);
-  web_server_.sendText(cockpit_web::serializeVehicleState(state, sequence));
-
-  if (selected_vehicle_id_ && *selected_vehicle_id_ == vehicle_id) {
-    const std::string controller_id = state.controller_id();
-    if (!controller_id.empty() && controller_id != cockpit_id_) {
-      clearVehicleSelection("车辆已由其他驾驶舱接管");
-      return;
-    }
-    command_generator_.syncVehicleState(state);
-  }
-}
-
-// 接收 Web 页面的车辆选择消息
-void Cockpit::receiveWebMessages() {
-  web_server_.receiveMessages([this](const std::string &message) {
-    const cockpit_web::Command command = cockpit_web::parseCommand(message);
-    switch (command.type) {
-    case cockpit_web::CommandType::SELECT_VEHICLE:
-      selectVehicle(command.vehicle_id);
-      break;
-    case cockpit_web::CommandType::DESELECT_VEHICLE:
-      deselectVehicle();
-      break;
-    case cockpit_web::CommandType::UNKNOWN:
-      break;
-    }
-  });
 }
 
 // 从 evdev 完整帧更新输入状态并生成控制指令
@@ -244,92 +161,38 @@ void Cockpit::receiveInputDevice() {
   }
 }
 
-// 验证车辆状态后记录当前选择
+// 记录详情车辆并初始化控制状态
 void Cockpit::selectVehicle(const std::string &vehicle_id) {
-  if (selected_vehicle_id_ && *selected_vehicle_id_ == vehicle_id)
-    return;
-  if (!heartbeat_cache_.isFresh(vehicle_id))
-    return;
-  if (!state_cache_.isFresh(vehicle_id))
-    return;
-
-  const auto *state_record = state_cache_.record(vehicle_id);
-  if (!state_record)
-    return;
-  const std::string controller_id = state_record->state.controller_id();
-  if (!controller_id.empty() && controller_id != cockpit_id_)
-    return;
-
-  deselectVehicle("切换控制车辆");
+  // 记录当前详情车辆并清除旧指令
   selected_vehicle_id_ = vehicle_id;
   command_generator_.reset();
-  command_generator_.syncVehicleState(state_record->state);
-  last_control_sent_ = Clock::now();
-  std::cout << "已选择车辆 " << vehicle_id << '\n';
+
+  // 使用缓存的车辆状态初始化控制指令
+  if (const auto *state_record = state_cache_.record(vehicle_id))
+    command_generator_.syncVehicleState(state_record->state);
 }
 
-// 发送退出指令后清理当前选择和指令状态
-void Cockpit::deselectVehicle(const char *reason) {
+// 请求退出远程模式并清理当前选择
+void Cockpit::deselectVehicle() {
   if (!selected_vehicle_id_)
     return;
 
-  const std::string vehicle_id = *selected_vehicle_id_;
+  // 请求当前车辆退出远程模式
   pb::RemoteDriveControlCommand exit_command;
   exit_command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
-  sendControlCommand(vehicle_id, exit_command);
+  sendControlCommand(*selected_vehicle_id_, exit_command);
 
-  clearVehicleSelection(reason);
-  std::cout << "退出指令未送达时由车端断联保护兜底\n";
-}
-
-// 清理本地车辆选择和指令状态
-void Cockpit::clearVehicleSelection(const char *reason) {
-  if (!selected_vehicle_id_)
-    return;
-
-  const std::string vehicle_id = *selected_vehicle_id_;
-
+  // 清除详情车辆和控制状态
   selected_vehicle_id_.reset();
   command_generator_.reset();
   last_control_sent_ = {};
-  std::cout << reason << "，已停止控制车辆 " << vehicle_id << '\n';
 }
 
-// 检查所选车辆状态并按周期生成和发送控制指令
-void Cockpit::updateControl(Clock::time_point now) {
-  if (!selected_vehicle_id_)
-    return;
-
+// 生成并发送一帧控制指令
+void Cockpit::sendControlUpdate(Clock::time_point now) {
   const std::string &vehicle_id = *selected_vehicle_id_;
-  if (!heartbeat_cache_.isFresh(vehicle_id)) {
-    deselectVehicle("车辆心跳超时");
-    return;
-  }
-  if (!state_cache_.isFresh(vehicle_id)) {
-    deselectVehicle("车辆状态回传超时");
-    return;
-  }
-
-  if (!command_generator_.hasInput() ||
-      now - last_control_sent_ < kControlInterval) {
-    return;
-  }
-
-  const auto *state_record = state_cache_.record(vehicle_id);
-  if (!state_record)
-    return;
-  const std::string controller_id = state_record->state.controller_id();
-  if (!controller_id.empty() && controller_id != cockpit_id_) {
-    clearVehicleSelection("车辆控制权已转移");
-    return;
-  }
   const pb::RemoteDriveControlCommand command =
       command_generator_.generate(now);
-  if (command.remote_mode_request() != pb::REMOTE_MODE_REQUEST_ENTER &&
-      (state_record->state.drive_mode() != pb::DRIVE_MODE_REMOTE ||
-       controller_id != cockpit_id_)) {
-    return;
-  }
 
   if (sendControlCommand(vehicle_id, command))
     last_control_sent_ = now;
@@ -338,51 +201,27 @@ void Cockpit::updateControl(Clock::time_point now) {
 // 查找车辆端点并发送控制指令
 bool Cockpit::sendControlCommand(const std::string &vehicle_id,
                                  pb::RemoteDriveControlCommand command) {
-  const auto vehicle_address = heartbeat_cache_.vehicleAddress(vehicle_id);
+  const auto vehicle_address = state_cache_.vehicleAddress(vehicle_id);
   if (!vehicle_address)
     return false;
 
   command.set_cockpit_id(cockpit_id_);
 
-  const auto sequence = command_sender_.send(command, *vehicle_address);
-  if (!sequence) {
+  // 分配序号并编码控制指令
+  const std::uint32_t sequence = next_control_sequence_++;
+  const auto packet = udp_codec::encodeControlCommand(command, sequence);
+
+  // 发送完整控制数据报
+  if (!udp_channel_.send(*vehicle_address, packet.data(), packet.size())) {
     perror("send control");
     return false;
   }
-  web_server_.sendText(
-      cockpit_web::serializeControlCommand(command, *sequence, vehicle_id));
   return true;
 }
 
-// 处理输入连接变化及断开安全退出
-void Cockpit::updateWebConnectionState() {
-  // 忽略未变化的连接状态
-  const bool connected = web_server_.connected();
-  if (connected == web_connected_)
-    return;
-  web_connected_ = connected;
-  if (connected) {
-    std::cout << "Web 控制页已连接\n";
-    return;
-  }
-
-  // 断开时请求车辆退出，车端超时保护继续兜底
-  deselectVehicle("Web 控制页断开");
-  std::cout << "Web 控制页已断开\n";
-}
-
-// 将车辆在线状态和当前选择推送给 Web 页面
+// 将车辆在线状态推送给 Web 页面
 void Cockpit::publishVehicleList(Clock::time_point now) {
-  auto vehicles = heartbeat_cache_.vehicleStatusList();
-  for (auto &vehicle : vehicles) {
-    const auto *record = state_cache_.record(vehicle.id);
-    if (record && state_cache_.isFresh(vehicle.id)) {
-      vehicle.controller_id = record->state.controller_id();
-      vehicle.drive_mode = modeName(record->state.drive_mode());
-    }
-  }
-  web_server_.sendText(cockpit_web::serializeVehicleStatusList(
-      vehicles, selected_vehicle_id_ ? *selected_vehicle_id_ : std::string{},
-      cockpit_id_));
+  auto vehicles = state_cache_.vehicleStatusList();
+  web_server_.sendText(web_protocol::serializeVehicleStatusList(vehicles));
   last_vehicle_list_sent_ = now;
 }

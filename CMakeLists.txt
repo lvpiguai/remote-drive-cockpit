@@ -4,8 +4,9 @@ project(remote_drive_cockpit LANGUAGES CXX)
 
 include(CTest)
 
-find_package(OpenSSL REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 find_package(Protobuf REQUIRED)
+find_package(Threads REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,7 +34,7 @@ add_library(cockpit_common
 target_include_directories(cockpit_common PUBLIC
     include
 )
-target_link_libraries(cockpit_common PUBLIC OpenSSL::Crypto)
+target_link_libraries(cockpit_common PUBLIC Boost::system)
 
 add_library(cockpit_devices
     src/input_device_reader.cpp
@@ -47,9 +48,7 @@ add_library(cockpit_core
     src/cockpit.cpp
     src/cockpit_web_protocol.cpp
     src/control_command_generator.cpp
-    src/control_command_sender.cpp
     src/udp_channel.cpp
-    src/vehicle_heartbeat_cache.cpp
     src/vehicle_state_cache.cpp
 )
 
@@ -72,24 +71,23 @@ if(BUILD_TESTING)
   target_link_libraries(input_pipeline_test PRIVATE cockpit_core)
   add_test(NAME input_pipeline_test COMMAND input_pipeline_test)
 
-  add_executable(control_command_sender_test
-      tests/control_command_sender_test.cpp
-  )
-  target_link_libraries(control_command_sender_test PRIVATE cockpit_core)
-  add_test(NAME control_command_sender_test COMMAND control_command_sender_test)
-
   add_executable(cockpit_web_protocol_test
       tests/cockpit_web_protocol_test.cpp
   )
   target_link_libraries(cockpit_web_protocol_test PRIVATE cockpit_core)
   add_test(NAME cockpit_web_protocol_test COMMAND cockpit_web_protocol_test)
 
-  add_executable(vehicle_heartbeat_cache_test
-      tests/vehicle_heartbeat_cache_test.cpp
+  add_executable(websocket_server_test
+      tests/websocket_server_test.cpp
   )
-  target_link_libraries(vehicle_heartbeat_cache_test PRIVATE cockpit_core)
-  add_test(NAME vehicle_heartbeat_cache_test
-           COMMAND vehicle_heartbeat_cache_test)
+  target_link_libraries(websocket_server_test PRIVATE cockpit_common Threads::Threads)
+  add_test(NAME websocket_server_test COMMAND websocket_server_test)
+
+  add_executable(udp_codec_test
+      tests/udp_codec_test.cpp
+  )
+  target_link_libraries(udp_codec_test PRIVATE cockpit_protocol)
+  add_test(NAME udp_codec_test COMMAND udp_codec_test)
 
   add_executable(vehicle_state_cache_test
       tests/vehicle_state_cache_test.cpp

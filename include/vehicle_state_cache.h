@@ -1,30 +1,35 @@
 #pragma once
 
+#include <netinet/in.h>
+
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "remote_drive.pb.h"
+#include "vehicle_online_status.h"
 
 // 单台车辆最近一次合法状态及其接收时间
 struct VehicleStateRecord {
   remote_drive::protocol::ChassisState state{};
+  sockaddr_in vehicle_address{};
   std::uint32_t sequence = 0;
   std::chrono::steady_clock::time_point last_update_time{};
 };
 
-// 按车辆保存最新状态记录，不依赖当前车辆选择
+// 按车辆保存最新状态、通信地址和在线时间
 class VehicleStateCache {
 public:
-  // 判断车辆状态的标识、数值和枚举是否可由驾驶舱接受
-  static bool isValidState(
-      const remote_drive::protocol::ChassisState &state);
+  using Clock = std::chrono::steady_clock;
 
-  // 保存指定车辆的最新状态记录
-  void update(const std::string &vehicle_id,
-              const remote_drive::protocol::ChassisState &state,
-              std::uint32_t sequence);
+  explicit VehicleStateCache(Clock::duration online_timeout);
+
+  // 保存序号递增且来源可信的车辆状态
+  bool update(const remote_drive::protocol::ChassisState &state,
+              std::uint32_t sequence, const sockaddr_in &vehicle_address);
 
   // 查找指定车辆的最新状态记录
   const VehicleStateRecord *record(const std::string &vehicle_id) const;
@@ -32,9 +37,19 @@ public:
   // 判断指定车辆的状态记录是否仍在有效期内
   bool isFresh(const std::string &vehicle_id) const;
 
-private:
-  using Clock = std::chrono::steady_clock;
-  static constexpr auto kTimeout = std::chrono::milliseconds(500);
+  // 判断指定车辆是否仍在线
+  bool isOnline(const std::string &vehicle_id) const;
 
+  // 获取车辆最近一次状态包的来源地址
+  std::optional<sockaddr_in> vehicleAddress(
+      const std::string &vehicle_id) const;
+
+  // 获取全部车辆在线状态
+  std::vector<VehicleOnlineStatus> vehicleStatusList() const;
+
+private:
+  static constexpr auto kStateTimeout = std::chrono::milliseconds(500);
+
+  Clock::duration online_timeout_;
   std::unordered_map<std::string, VehicleStateRecord> state_records_;
 };

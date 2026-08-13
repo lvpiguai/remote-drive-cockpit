@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <sstream>
 
-namespace cockpit_web {
+namespace web_protocol {
 namespace {
 
 namespace pb = remote_drive::protocol;
@@ -58,21 +58,6 @@ const char *gearName(pb::Gear gear) {
   return "UNKNOWN";
 }
 
-// 远控指令文本
-const char *remoteModeRequestName(pb::RemoteModeRequest mode) {
-  switch (mode) {
-  case pb::REMOTE_MODE_REQUEST_NONE:
-    return "NONE";
-  case pb::REMOTE_MODE_REQUEST_ENTER:
-    return "ENTER";
-  case pb::REMOTE_MODE_REQUEST_EXIT:
-    return "EXIT";
-  default:
-    break;
-  }
-  return "UNKNOWN";
-}
-
 // 铲斗状态文本
 const char *bucketName(pb::Bucket bucket) {
   switch (bucket) {
@@ -90,21 +75,6 @@ const char *bucketName(pb::Bucket bucket) {
 
 // JSON 布尔字面量
 const char *jsonBool(bool value) { return value ? "true" : "false"; }
-
-// 三态开关文本
-const char *switchCommandName(pb::SwitchCommand command) {
-  switch (command) {
-  case pb::SWITCH_NO_CONTROL:
-    return "NO_CTL";
-  case pb::SWITCH_OFF:
-    return "OFF";
-  case pb::SWITCH_ON:
-    return "ON";
-  default:
-    break;
-  }
-  return "UNKNOWN";
-}
 
 } // namespace
 
@@ -128,52 +98,10 @@ Command parseCommand(const std::string &message) {
   return {CommandType::SELECT_VEHICLE, id};
 }
 
-// 序列化控制指令
-std::string serializeControlCommand(const pb::RemoteDriveControlCommand &command,
-                                    std::uint32_t sequence,
-                                    const std::string &vehicle_id) {
-  std::ostringstream json;
-  json << R"({"type":"control","seq":)" << sequence << R"(,"vehicle_id":")"
-       << jsonString(vehicle_id) << '"' << R"(,"cockpit_id":")"
-       << jsonString(command.cockpit_id()) << '"' << R"(,"steering":)"
-       << command.steering_angle() << R"(,"acc":)"
-       << command.accelerator_percent() << R"(,"brake":)"
-       << command.brake_percent() << R"(,"gear":")"
-       << gearName(command.gear()) << R"(","bucket":")"
-       << bucketName(command.bucket()) << R"(","remote":")"
-       << remoteModeRequestName(command.remote_mode_request())
-       << R"(","parking":")"
-       << switchCommandName(command.parking()) << R"(","horn":")"
-       << switchCommandName(command.horn()) << R"(","spray":")"
-       << switchCommandName(command.spray()) << R"(","emergency":")"
-       << switchCommandName(command.remote_emergency()) << R"(","wiper":")"
-       << switchCommandName(command.window_wiper()) << R"(","brakeLight":")"
-       << switchCommandName(command.light_brake()) << R"(","positionLight":")"
-       << switchCommandName(command.light_position()) << R"(","lowBeam":")"
-       << switchCommandName(command.light_near()) << R"(","highBeam":")"
-       << switchCommandName(command.light_far()) << R"(","leftTurn":")"
-       << switchCommandName(command.light_turn_left()) << R"(","rightTurn":")"
-       << switchCommandName(command.light_turn_right())
-       << R"(","rearWorkLight":")"
-       << switchCommandName(command.light_working_rear())
-       << R"(","warningLight":")" << switchCommandName(command.light_danger())
-       << R"(","reverseLight":")" << switchCommandName(command.light_reverse())
-       << R"(","hazardLight":")"
-       << switchCommandName(command.light_double_flash())
-       << R"(","frontLight":")" << switchCommandName(command.light_front())
-       << R"(","sideWorkLight":")"
-       << switchCommandName(command.light_working_side())
-       << R"(","fogLight":")" << switchCommandName(command.light_fog())
-       << R"(","diffLock":")" << switchCommandName(command.diff_lock())
-       << R"("})";
-  return json.str();
-}
-
 // 序列化车辆状态
-std::string serializeVehicleState(const pb::ChassisState &state,
-                                  std::uint32_t sequence) {
+std::string serializeVehicleState(const pb::ChassisState &state) {
   std::ostringstream json;
-  json << R"({"type":"state","seq":)" << sequence << R"(,"vehicle_id":")"
+  json << R"({"type":"state","vehicle_id":")"
        << jsonString(state.vehicle_id()) << '"' << R"(,"controller_id":")"
        << jsonString(state.controller_id()) << '"' << R"(,"mode":")"
        << modeName(state.drive_mode()) << R"(","steering":)"
@@ -203,19 +131,9 @@ std::string serializeVehicleState(const pb::ChassisState &state,
 
 // 序列化车辆在线状态列表
 std::string
-serializeVehicleStatusList(const std::vector<VehicleOnlineStatus> &vehicles,
-                           const std::string &selected_vehicle_id,
-                           const std::string &cockpit_id) {
+serializeVehicleStatusList(const std::vector<VehicleOnlineStatus> &vehicles) {
   std::ostringstream json;
-  json << R"({"type":"vehicles","cockpit_id":")" << jsonString(cockpit_id)
-       << R"(","selected":)";
-  // 未选车时输出 null
-  if (selected_vehicle_id.empty()) {
-    json << "null";
-  } else {
-    json << '"' << jsonString(selected_vehicle_id) << '"';
-  }
-  json << R"(,"vehicles":[)";
+  json << R"({"type":"vehicles","vehicles":[)";
   // 输出完整列表供前端覆盖旧状态
   bool first = true;
   for (const auto &vehicle : vehicles) {
@@ -223,12 +141,10 @@ serializeVehicleStatusList(const std::vector<VehicleOnlineStatus> &vehicles,
       json << ',';
     first = false;
     json << R"({"id":")" << jsonString(vehicle.id) << R"(","online":)"
-         << jsonBool(vehicle.online) << R"(,"controller_id":")"
-         << jsonString(vehicle.controller_id) << R"(","mode":")"
-         << jsonString(vehicle.drive_mode) << R"("})";
+         << jsonBool(vehicle.online) << '}';
   }
   json << "]}";
   return json.str();
 }
 
-} // namespace cockpit_web
+} // namespace web_protocol

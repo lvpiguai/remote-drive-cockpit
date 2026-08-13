@@ -18,12 +18,10 @@ const cockpitLinks = cockpitProfiles.map((profile) => ({
 document.title = `${cockpitProfile.name} · Remote Drive`
 
 const cockpitConnected = ref(false)
-const controlSnapshot = ref(null)
 const stateSnapshot = ref(null)
 const vehicleStateSnapshots = reactive({})
 const vehicles = ref([])
 const selectedVehicleId = ref(null)
-const pendingVehicleId = ref(null)
 const activeView = ref('vehicles')
 
 let cockpitSocket = null
@@ -41,7 +39,7 @@ const onlineVehicleCount = computed(() =>
   vehicles.value.filter((vehicle) => vehicle.online).length,
 )
 
-const controlSwitches = [
+const stateSwitches = [
   ['parking', '驻车'], ['emergency', '急停'], ['horn', '喇叭'],
   ['spray', '喷水'], ['wiper', '雨刷'], ['brakeLight', '刹车灯'],
   ['positionLight', '位置灯'], ['lowBeam', '近光灯'], ['highBeam', '远光灯'],
@@ -50,22 +48,28 @@ const controlSwitches = [
   ['frontLight', '前照灯'], ['sideWorkLight', '侧工作灯'], ['fogLight', '雾灯'],
   ['diffLock', '差速锁'],
 ]
-const stateSwitches = controlSwitches
 
-// 控制权归属于其他驾驶舱时，当前页面只展示占用信息
-function controlledByOtherCockpit(vehicle) {
-  return Boolean(vehicle.controller_id) &&
-    vehicle.controller_id !== cockpitProfile.id
+function vehicleState(vehicle) {
+  return vehicleStateSnapshots[vehicle.id] ?? null
 }
 
-// 根据在线状态和控制权生成车辆卡片操作文案
+function vehicleDriveMode(vehicle) {
+  return vehicleState(vehicle)?.mode ?? ''
+}
+
+// 远程模式表示车辆已被驾驶舱接管
+function vehicleInRemoteMode(vehicle) {
+  return vehicleDriveMode(vehicle) === 'REMOTE'
+}
+
+function vehicleSelectable(vehicle) {
+  return vehicle.online && Boolean(vehicleState(vehicle))
+}
+
+// 根据在线状态和驾驶模式生成车辆卡片操作文案
 function vehicleActionText(vehicle) {
   if (!vehicle.online) return '车辆不可用'
-  if (controlledByOtherCockpit(vehicle)) {
-    return `已由 ${vehicle.controller_id} 接管`
-  }
-  if (pendingVehicleId.value === vehicle.id) return '正在进入…'
-  if (vehicle.controller_id === cockpitProfile.id) return '继续驾驶'
+  if (!vehicleState(vehicle)) return '等待车辆状态'
   return '进入驾驶详情'
 }
 
@@ -100,9 +104,6 @@ function connectCockpitSocket() {
   nextSocket.addEventListener('message', (event) => {
     try {
       const snapshot = JSON.parse(event.data)
-      if (snapshot.type === 'control') {
-        controlSnapshot.value = snapshot
-      }
       if (snapshot.type === 'state') {
         vehicleStateSnapshots[snapshot.vehicle_id] = snapshot
         if (snapshot.vehicle_id === selectedVehicleId.value) {
@@ -110,31 +111,7 @@ function connectCockpitSocket() {
         }
       }
       if (snapshot.type === 'vehicles') {
-        const previousSelectedVehicleId = selectedVehicleId.value
-        vehicles.value = snapshot.vehicles
-        selectedVehicleId.value = snapshot.selected
-        if (snapshot.selected !== previousSelectedVehicleId) {
-          stateSnapshot.value = snapshot.selected
-            ? vehicleStateSnapshots[snapshot.selected] ?? null
-            : null
-        }
-        if (activeView.value === 'detail' && previousSelectedVehicleId &&
-            !snapshot.selected) {
-          activeView.value = 'vehicles'
-          controlSnapshot.value = null
-          stateSnapshot.value = null
-        }
-        if (pendingVehicleId.value) {
-          if (snapshot.selected === pendingVehicleId.value) {
-            pendingVehicleId.value = null
-            activeView.value = 'detail'
-          } else if (!snapshot.vehicles.some(
-            (vehicle) => vehicle.id === pendingVehicleId.value &&
-              vehicle.online && !controlledByOtherCockpit(vehicle),
-          )) {
-            pendingVehicleId.value = null
-          }
-        }
+        vehicles.value = snapshot.vehicles ?? []
       }
     } catch {
       // 忽略非快照消息
@@ -146,7 +123,7 @@ function connectCockpitSocket() {
     cockpitConnected.value = false
     activeView.value = 'vehicles'
     selectedVehicleId.value = null
-    pendingVehicleId.value = null
+    stateSnapshot.value = null
     for (const vehicleId of Object.keys(vehicleStateSnapshots)) {
       delete vehicleStateSnapshots[vehicleId]
     }
@@ -157,14 +134,13 @@ function connectCockpitSocket() {
   nextSocket.addEventListener('error', () => nextSocket.close())
 }
 
-// 请求驾驶舱选择一台在线且未被其他驾驶舱占用的车辆
+// 请求驾驶舱打开一台在线车辆的详情
 function selectVehicle(vehicle) {
-  if (!vehicle.online || controlledByOtherCockpit(vehicle) ||
-      pendingVehicleId.value ||
+  if (!vehicleSelectable(vehicle) ||
       cockpitSocket?.readyState !== WebSocket.OPEN) return
-  pendingVehicleId.value = vehicle.id
-  controlSnapshot.value = null
-  stateSnapshot.value = null
+  selectedVehicleId.value = vehicle.id
+  stateSnapshot.value = vehicleState(vehicle)
+  activeView.value = 'detail'
   cockpitSocket.send(JSON.stringify({ type: 'select_vehicle', vehicle_id: vehicle.id }))
 }
 
@@ -173,8 +149,6 @@ function returnToVehicleList() {
   releaseSelectedVehicle()
   activeView.value = 'vehicles'
   selectedVehicleId.value = null
-  pendingVehicleId.value = null
-  controlSnapshot.value = null
   stateSnapshot.value = null
 }
 
@@ -182,14 +156,12 @@ function returnToVehicleList() {
 const driveHint = computed(() => {
   if (!selectedVehicle.value) return '请先选择在线车辆'
   if (!selectedVehicle.value.online) return '所选车辆已离线'
-  if (!controlSnapshot.value || !stateSnapshot.value) return '等待控制链路就绪'
+  if (!stateSnapshot.value) return '等待车辆状态'
   if (stateSnapshot.value.mode !== 'REMOTE') return '请先进入远控模式'
   if (stateSnapshot.value.emergency) return '请先解除急停'
   if (stateSnapshot.value.parking) return '解除驻车后车辆才允许起步'
   if (stateSnapshot.value.gear === 'N') return '挂入行驶挡位后等待控制指令'
-  if (controlSnapshot.value.brake > 0) return '请松开制动踏板'
-  if (controlSnapshot.value.acc <= 0) return '车辆已就绪，等待油门输入'
-  return '油门已生效，车辆正在加速'
+  return '车辆已进入远控模式'
 })
 
 onMounted(() => {
@@ -254,10 +226,9 @@ onUnmounted(() => {
           class="fleet-card"
           :class="{
             offline: !vehicle.online,
-            busy: controlledByOtherCockpit(vehicle),
-            pending: pendingVehicleId === vehicle.id,
+            busy: vehicleInRemoteMode(vehicle),
           }"
-          :disabled="!vehicle.online || controlledByOtherCockpit(vehicle) || Boolean(pendingVehicleId)"
+          :disabled="!vehicleSelectable(vehicle)"
           @click="selectVehicle(vehicle)"
         >
           <span class="fleet-card-topline"></span>
@@ -268,24 +239,23 @@ onUnmounted(() => {
               <strong>{{ vehicle.id }}</strong>
             </span>
             <span class="fleet-online" :class="{ offline: !vehicle.online }">
-              {{ vehicle.online ? (controlledByOtherCockpit(vehicle) ? '占用' : '在线') : '离线' }}
+              {{ vehicle.online ? (vehicleInRemoteMode(vehicle) ? '占用' : '在线') : '离线' }}
             </span>
           </span>
           <span class="fleet-card-meta">
-            <span><small>驾驶模式</small><strong>{{ driveModeText(vehicle.mode) }}</strong></span>
-            <span><small>当前控制者</small><strong>{{ vehicle.controller_id || '空闲' }}</strong></span>
+            <span><small>驾驶模式</small><strong>{{ driveModeText(vehicleDriveMode(vehicle)) }}</strong></span>
           </span>
           <span class="fleet-card-action">
             {{ vehicleActionText(vehicle) }}
-            <b v-if="vehicle.online && !controlledByOtherCockpit(vehicle)">→</b>
+            <b v-if="vehicleSelectable(vehicle)">→</b>
           </span>
         </button>
       </div>
 
       <div v-else class="fleet-empty">
         <span class="fleet-empty-radar"></span>
-        <strong>未指定车辆</strong>
-        <p>启动驾驶舱时请提供车辆 ID</p>
+        <strong>暂无车辆</strong>
+        <p>等待车辆状态</p>
       </div>
     </section>
   </main>
@@ -309,39 +279,10 @@ onUnmounted(() => {
 
     <section class="layout">
       <aside class="right-column">
-        <section class="panel telemetry-panel">
-          <div class="panel-title">
-            <span>驾驶舱控制指令</span>
-            <span class="connection-state" :class="{ connected: cockpitConnected }">
-              {{ cockpitConnected ? '已连接' : '未连接' }}
-            </span>
-          </div>
-          <div v-if="controlSnapshot" class="telemetry-body">
-            <div class="metric-grid">
-              <div><span>序号</span><strong>{{ controlSnapshot.seq }}</strong></div>
-              <div><span>远控指令</span><strong>{{ controlSnapshot.remote }}</strong></div>
-              <div><span>转向</span><strong>{{ formatNumber(controlSnapshot.steering) }}°</strong></div>
-              <div><span>挡位</span><strong>{{ controlSnapshot.gear }}</strong></div>
-              <div><span>油门</span><strong>{{ formatNumber(controlSnapshot.acc) }}%</strong></div>
-              <div><span>制动</span><strong>{{ formatNumber(controlSnapshot.brake) }}%</strong></div>
-              <div><span>铲斗</span><strong>{{ controlSnapshot.bucket }}</strong></div>
-            </div>
-            <div class="switch-grid">
-              <span
-                v-for="([key, label]) in controlSwitches"
-                :key="key"
-                :class="{ active: controlSnapshot[key] === 'ON' }"
-              >{{ label }} · {{ controlSnapshot[key] }}</span>
-            </div>
-          </div>
-          <div v-else class="telemetry-empty">等待控制指令</div>
-        </section>
-
         <section class="panel telemetry-panel state-panel">
           <div class="panel-title"><span>车辆回传状态</span></div>
           <div v-if="stateSnapshot" class="telemetry-body">
             <div class="metric-grid">
-              <div><span>序号</span><strong>{{ stateSnapshot.seq }}</strong></div>
               <div><span>驾驶模式</span><strong>{{ stateSnapshot.mode }}</strong></div>
               <div><span>控制驾驶舱</span><strong>{{ stateSnapshot.controller_id || '空闲' }}</strong></div>
               <div><span>实际转向</span><strong>{{ formatNumber(stateSnapshot.steering) }}°</strong></div>

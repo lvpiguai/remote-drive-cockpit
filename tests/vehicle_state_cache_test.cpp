@@ -1,8 +1,9 @@
 #include "vehicle_state_cache.h"
 
+#include <arpa/inet.h>
+
 #include <cassert>
 #include <chrono>
-#include <limits>
 #include <thread>
 
 namespace {
@@ -16,28 +17,32 @@ pb::ChassisState state(const char *vehicle_id, pb::DriveMode mode) {
   return result;
 }
 
+// 构造使用回环地址的测试车辆地址
+sockaddr_in vehicleAddress(std::uint16_t port) {
+  sockaddr_in result{};
+  result.sin_family = AF_INET;
+  result.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  result.sin_port = htons(port);
+  return result;
+}
+
 } // namespace
 
 int main() {
   using namespace std::chrono_literals;
-  VehicleStateCache cache;
+  VehicleStateCache cache(20ms);
   const auto first = state("truck_01", pb::DRIVE_MODE_STANDBY);
   const auto second = state("truck_02", pb::DRIVE_MODE_REMOTE);
+  const auto first_address = vehicleAddress(7006);
+  const auto restarted_address = vehicleAddress(7016);
 
-  assert(VehicleStateCache::isValidState(first));
-  auto invalid = first;
-  invalid.clear_vehicle_id();
-  assert(!VehicleStateCache::isValidState(invalid));
-  invalid = first;
-  invalid.set_speed(std::numeric_limits<double>::infinity());
-  assert(!VehicleStateCache::isValidState(invalid));
-
-  // 不同车辆的状态、序号和接收时间分别保存
+  // 状态首次到达时动态发现车辆并记录来源地址
   assert(!cache.record("truck_01"));
+  assert(cache.vehicleStatusList().empty());
   const auto before_update = std::chrono::steady_clock::now();
-  cache.update("truck_01", first, 8);
+  assert(cache.update(first, 8, first_address));
   const auto after_update = std::chrono::steady_clock::now();
-  cache.update("truck_02", second, 3);
+  assert(cache.update(second, 3, first_address));
 
   const auto *first_record = cache.record("truck_01");
   assert(first_record);
@@ -47,7 +52,32 @@ int main() {
   assert(first_record->last_update_time <= after_update);
   assert(cache.record("truck_02"));
   assert(cache.isFresh("truck_01"));
+  assert(cache.isOnline("truck_01"));
   assert(!cache.isFresh("missing"));
+  assert(!cache.isOnline("missing"));
+
+  const auto discovered = cache.vehicleStatusList();
+  assert(discovered.size() == 2);
+  assert(discovered[0].id == "truck_01");
+  assert(discovered[0].online);
+  assert(discovered[1].id == "truck_02");
+  assert(discovered[1].online);
+
+  const auto address = cache.vehicleAddress("truck_01");
+  assert(address);
+  assert(ntohs(address->sin_port) == 7006);
+  assert(!cache.vehicleAddress("missing"));
+
+  // 在线期间拒绝重复序号和同车辆的其他来源地址
+  assert(!cache.update(first, 8, first_address));
+  assert(!cache.update(first, 9, restarted_address));
+
+  // 在线超时后允许车辆以新端点和新序号重新上线
+  std::this_thread::sleep_for(25ms);
+  assert(!cache.isOnline("truck_01"));
+  assert(cache.update(first, 1, restarted_address));
+  assert(cache.isOnline("truck_01"));
+  assert(ntohs(cache.vehicleAddress("truck_01")->sin_port) == 7016);
 
   // 超过状态有效期后，记录仍可查询但不再视为新鲜
   std::this_thread::sleep_for(510ms);

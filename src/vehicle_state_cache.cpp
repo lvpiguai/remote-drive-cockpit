@@ -1,36 +1,48 @@
 #include "vehicle_state_cache.h"
 
-#include <cmath>
-#include <cstddef>
+#include <algorithm>
 
 namespace {
 
 namespace pb = remote_drive::protocol;
 
-constexpr std::size_t kMaxIdLength = 19;
+// 比较两个 UDP 来源端点
+bool sameAddress(const sockaddr_in &left, const sockaddr_in &right) {
+  return left.sin_family == right.sin_family &&
+         left.sin_addr.s_addr == right.sin_addr.s_addr &&
+         left.sin_port == right.sin_port;
+}
 
 } // namespace
 
-bool VehicleStateCache::isValidState(const pb::ChassisState &state) {
-  return !state.vehicle_id().empty() &&
-         state.vehicle_id().size() <= kMaxIdLength &&
-         state.controller_id().size() <= kMaxIdLength &&
-         std::isfinite(state.steering_angle()) &&
-         std::isfinite(state.speed()) &&
-         pb::DriveMode_IsValid(state.drive_mode()) &&
-         pb::Gear_IsValid(state.gear()) && pb::Bucket_IsValid(state.bucket());
-}
+// 保存车辆在线超时时间
+VehicleStateCache::VehicleStateCache(Clock::duration online_timeout)
+    : online_timeout_(online_timeout) {}
 
-// 保存指定车辆的最新状态记录
-void VehicleStateCache::update(const std::string &vehicle_id,
-                               const remote_drive::protocol::ChassisState &state,
-                               std::uint32_t sequence) {
-  state_records_[vehicle_id] = {state, sequence, Clock::now()};
+// 状态包同时用于动态发现车辆和刷新在线时间
+bool VehicleStateCache::update(const pb::ChassisState &state,
+                               std::uint32_t sequence,
+                               const sockaddr_in &vehicle_address) {
+  // 查找车辆已有状态
+  const std::string &vehicle_id = state.vehicle_id();
+  const auto previous = state_records_.find(vehicle_id);
+
+  // 在线期间拒绝来源变化和未递增序号
+  if (previous != state_records_.end() && isOnline(vehicle_id) &&
+      (!sameAddress(previous->second.vehicle_address, vehicle_address) ||
+       sequence <= previous->second.sequence)) {
+    return false;
+  }
+
+  // 覆盖状态并刷新来源地址和接收时间
+  state_records_[vehicle_id] = {state, vehicle_address, sequence, Clock::now()};
+  return true;
 }
 
 // 查找指定车辆的最新状态记录
 const VehicleStateRecord *
 VehicleStateCache::record(const std::string &vehicle_id) const {
+  // 未发现车辆时不创建空记录
   const auto state_iterator = state_records_.find(vehicle_id);
   return state_iterator == state_records_.end() ? nullptr
                                                  : &state_iterator->second;
@@ -38,7 +50,43 @@ VehicleStateCache::record(const std::string &vehicle_id) const {
 
 // 判断指定车辆的状态记录是否仍然新鲜
 bool VehicleStateCache::isFresh(const std::string &vehicle_id) const {
+  // 控制链路使用较短的状态超时
   const auto *state_record = record(vehicle_id);
   return state_record &&
-         Clock::now() - state_record->last_update_time < kTimeout;
+         Clock::now() - state_record->last_update_time < kStateTimeout;
+}
+
+// 在线状态使用较宽松的超时，避免偶发状态丢包导致页面闪断
+bool VehicleStateCache::isOnline(const std::string &vehicle_id) const {
+  // 页面在线状态使用配置的宽松超时
+  const auto *state_record = record(vehicle_id);
+  return state_record &&
+         Clock::now() - state_record->last_update_time < online_timeout_;
+}
+
+std::optional<sockaddr_in>
+VehicleStateCache::vehicleAddress(const std::string &vehicle_id) const {
+  // 控制指令发送到最近一次状态包的来源端点
+  const auto *state_record = record(vehicle_id);
+  if (!state_record)
+    return std::nullopt;
+  return state_record->vehicle_address;
+}
+
+// 生成按车辆 ID 排序的在线状态列表
+std::vector<VehicleOnlineStatus> VehicleStateCache::vehicleStatusList() const {
+  // 从全部已发现车辆生成当前在线快照
+  std::vector<VehicleOnlineStatus> result;
+  result.reserve(state_records_.size());
+  for (const auto &state_entry : state_records_) {
+    result.push_back({state_entry.first, isOnline(state_entry.first)});
+  }
+
+  // 固定输出顺序，避免前端列表抖动
+  std::sort(result.begin(), result.end(),
+            [](const VehicleOnlineStatus &left,
+               const VehicleOnlineStatus &right) {
+              return left.id < right.id;
+            });
+  return result;
 }
