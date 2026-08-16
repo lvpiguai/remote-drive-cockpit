@@ -16,10 +16,10 @@ bool is(pb::SwitchCommand actual, pb::SwitchCommand expected) {
   return actual == expected;
 }
 
-pb::RemoteDriveControlCommand
+pb::ControlCommand
 applyInput(ControlCommandGenerator &generator, const InputDeviceState &input,
            ControlCommandGenerator::Clock::time_point now) {
-  generator.updateInput(input, now);
+  generator.processInputState(input, now);
   return generator.generate(now);
 }
 
@@ -64,7 +64,7 @@ int main() {
   command = applyInput(generator, drive, start + 2ms);
   assert(command.gear() == pb::GEAR_DRIVE_1);
   drive.l3_pressed = false;
-  generator.updateInput(drive, start + 3ms);
+  generator.processInputState(drive, start + 3ms);
   assert(generator.generate(start + 3ms).gear() == pb::GEAR_DRIVE_1);
 
   pb::ChassisState moving;
@@ -80,14 +80,14 @@ int main() {
   assert(command.gear() == pb::GEAR_NEUTRAL);
 
   InputDeviceState wiper;
-  generator.updateInput(wiper, start + 6ms);
+  generator.processInputState(wiper, start + 6ms);
   wiper.l2_pressed = true;
   assert(is(applyInput(generator, wiper, start + 7ms).window_wiper(),
             pb::SWITCH_ON));
   assert(is(applyInput(generator, wiper, start + 8ms).window_wiper(),
             pb::SWITCH_ON));
   wiper.l2_pressed = false;
-  generator.updateInput(wiper, start + 9ms);
+  generator.processInputState(wiper, start + 9ms);
   wiper.l2_pressed = true;
   assert(is(applyInput(generator, wiper, start + 10ms).window_wiper(),
             pb::SWITCH_OFF));
@@ -111,7 +111,7 @@ int main() {
   assert(is(applyInput(generator, switches, start + 14ms).light_fog(),
             pb::SWITCH_ON));
   switches.square_pressed = false;
-  generator.updateInput(switches, start + 15ms);
+  generator.processInputState(switches, start + 15ms);
   switches.start_pressed = true;
   assert(is(applyInput(generator, switches, start + 16ms).diff_lock(),
             pb::SWITCH_ON));
@@ -119,7 +119,7 @@ int main() {
   // 开关命令由实车状态确认后恢复 NO_CTL，外部状态变化不会被重复覆盖
   ControlCommandGenerator confirmation_generator;
   InputDeviceState confirmation_input;
-  confirmation_generator.updateInput(confirmation_input, start + 17ms);
+  confirmation_generator.processInputState(confirmation_input, start + 17ms);
   confirmation_input.l2_pressed = true;
   assert(is(applyInput(confirmation_generator, confirmation_input,
                        start + 18ms)
@@ -135,7 +135,7 @@ int main() {
   assert(is(confirmation_generator.generate(start + 18ms).window_wiper(),
             pb::SWITCH_NO_CONTROL));
   confirmation_input.l2_pressed = false;
-  confirmation_generator.updateInput(confirmation_input, start + 19ms);
+  confirmation_generator.processInputState(confirmation_input, start + 19ms);
   confirmation_input.l2_pressed = true;
   assert(is(applyInput(confirmation_generator, confirmation_input,
                        start + 20ms)
@@ -144,7 +144,7 @@ int main() {
   confirmed_state.set_window_wiper(true);
   confirmation_generator.syncVehicleState(confirmed_state);
   confirmation_input.l2_pressed = false;
-  confirmation_generator.updateInput(confirmation_input, start + 21ms);
+  confirmation_generator.processInputState(confirmation_input, start + 21ms);
   confirmation_input.l2_pressed = true;
   assert(is(applyInput(confirmation_generator, confirmation_input,
                        start + 22ms)
@@ -155,30 +155,49 @@ int main() {
   assert(is(confirmation_generator.generate(start + 22ms).window_wiper(),
             pb::SWITCH_NO_CONTROL));
 
+  // 持续型输入被车辆确认后仍应保留，直到收到新的输入状态
+  ControlCommandGenerator continuous_generator;
+  InputDeviceState continuous_input;
+  continuous_input.brake_pedal = 0.5;
+  continuous_input.r2_pressed = true;
+  continuous_input.pov = PovDirection::UP;
+  continuous_generator.processInputState(continuous_input, start + 23ms);
+  pb::ChassisState continuous_state;
+  continuous_state.set_horn(true);
+  continuous_state.set_spray(true);
+  continuous_state.set_light_brake(true);
+  continuous_generator.syncVehicleState(continuous_state);
+  const auto continuous_command = continuous_generator.generate(start + 24ms);
+  assert(is(continuous_command.horn(), pb::SWITCH_ON));
+  assert(is(continuous_command.spray(), pb::SWITCH_ON));
+  assert(is(continuous_command.light_brake(), pb::SWITCH_ON));
+
   InputDeviceState parking;
   parking.clutch_pedal = 0.22;
   parking.l1_pressed = true;
-  generator.updateInput(parking, start + 20ms);
-  assert(is(generator.generate(start + 1019ms).parking(),
+  generator.processInputState(parking, start + 20ms);
+  parking.wheel = 0.5;
+  generator.processInputState(parking, start + 300ms);
+  assert(is(generator.generate(start + 519ms).parking(),
             pb::SWITCH_NO_CONTROL));
-  assert(is(generator.generate(start + 1020ms).parking(), pb::SWITCH_OFF));
+  assert(is(generator.generate(start + 520ms).parking(), pb::SWITCH_OFF));
   assert(is(generator.generate(start + 2s).parking(), pb::SWITCH_OFF));
 
   InputDeviceState emergency;
   emergency.brake_pedal = 0.22;
   emergency.r1_pressed = true;
-  generator.updateInput(emergency, start + 4s);
-  assert(is(generator.generate(start + 4999ms).remote_emergency(),
+  generator.processInputState(emergency, start + 4s);
+  assert(is(generator.generate(start + 4499ms).remote_emergency(),
             pb::SWITCH_NO_CONTROL));
-  assert(is(generator.generate(start + 5s).remote_emergency(),
+  assert(is(generator.generate(start + 4500ms).remote_emergency(),
             pb::SWITCH_ON));
 
   InputDeviceState encoder;
   for (int i = 0; i < 12; ++i) {
     encoder.encoder_clockwise_pressed = true;
-    generator.updateInput(encoder, start + 6s + i * 10ms);
+    generator.processInputState(encoder, start + 6s + i * 10ms);
     encoder.encoder_clockwise_pressed = false;
-    generator.updateInput(encoder, start + 6s + i * 10ms + 1ms);
+    generator.processInputState(encoder, start + 6s + i * 10ms + 1ms);
   }
   encoder.encoder_confirm_pressed = true;
   const auto enter_command = applyInput(generator, encoder, start + 6200ms);

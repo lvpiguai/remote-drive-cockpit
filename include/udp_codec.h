@@ -14,14 +14,10 @@ using PacketBytes = std::vector<std::uint8_t>;
 
 // 将驾驶舱控制指令封装并序列化为 UDP 负载
 PacketBytes encodeControlCommand(
-    const remote_drive::protocol::RemoteDriveControlCommand &command,
+    const remote_drive::protocol::ControlCommand &command,
     std::uint32_t sequence);
 
-// 将车端状态封装并序列化为 UDP 负载
-PacketBytes encodeDrivingState(
-    const remote_drive::protocol::ChassisState &state, std::uint32_t sequence);
-
-// 从 UDP 负载反序列化一个结构完整的 Protobuf 包
+// 从 UDP 负载解码并校验一个协议包
 std::optional<remote_drive::protocol::UdpPacket>
 decodePacket(const std::uint8_t *data, std::size_t size);
 

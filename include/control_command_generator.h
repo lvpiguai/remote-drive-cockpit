@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <optional>
 
 #include "input_device_state.h"
 #include "remote_drive.pb.h"
@@ -12,12 +13,12 @@ class ControlCommandGenerator {
 
   ControlCommandGenerator();
 
-  // 消费新输入并更新边沿和按住状态
-  void updateInput(const InputDeviceState &state,
-                   Clock::time_point now = Clock::now());
+  // 处理最新输入状态，更新控制指令、按键边沿和累计状态
+  void processInputState(const InputDeviceState &state,
+                         Clock::time_point now = Clock::now());
 
-  // 基于最新输入和当前时间生成待发送指令
-  remote_drive::protocol::RemoteDriveControlCommand
+  // 结算长按等时间状态并返回最新控制指令
+  remote_drive::protocol::ControlCommand
   generate(Clock::time_point now = Clock::now());
 
   // 同步车辆实际状态
@@ -56,17 +57,13 @@ class ControlCommandGenerator {
 
   InputDeviceState current_{};
   InputDeviceState previous_{};
-  remote_drive::protocol::RemoteDriveControlCommand command_{};
+  remote_drive::protocol::ControlCommand command_{};
   remote_drive::protocol::ChassisState actual_state_{};
   bool has_input_ = false;
   bool has_actual_state_ = false;
 
-  bool parking_holding_ = false;
-  bool parking_action_done_ = false;
-  Clock::time_point parking_hold_start_{};
-  bool emergency_holding_ = false;
-  bool emergency_action_done_ = false;
-  Clock::time_point emergency_hold_start_{};
+  std::optional<Clock::time_point> parking_hold_start_;
+  std::optional<Clock::time_point> emergency_hold_start_;
 
   int remote_cw_count_ = 0;
   int remote_ccw_count_ = 0;

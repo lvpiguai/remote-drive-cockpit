@@ -18,7 +18,7 @@ namespace {
 
 namespace pb = remote_drive::protocol;
 
-constexpr auto kVehicleOnlineTimeout = std::chrono::milliseconds(2500);
+constexpr auto kVehicleOnlineTimeout = std::chrono::milliseconds(500);
 constexpr auto kVehicleListInterval = std::chrono::milliseconds(100);
 constexpr auto kControlInterval = std::chrono::milliseconds(20);
 constexpr int kPollTimeoutMs = 20;
@@ -60,8 +60,9 @@ int Cockpit::run() {
     if (descriptors[1].revents & POLLIN)
       receiveInputDevice();
     if (descriptors[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+      // 输入设备异常时退出车辆，但保留页面和车辆状态服务
       deselectVehicle();
-      return 1;
+      input_device_reader_.closeDevice();
     }
 
     // 推进 WebSocket 事件并处理完整文本消息
@@ -77,12 +78,18 @@ int Cockpit::run() {
     // 使用同一时间点处理本轮周期任务
     const auto now = Clock::now();
 
-    // 状态新鲜时每 20ms 发送一次控制指令
+    // 所选车辆离线时尝试退出，车端断联超时负责兜底
     if (selected_vehicle_id_ &&
-        state_cache_.isFresh(*selected_vehicle_id_) &&
-        command_generator_.hasInput() &&
+        !state_cache_.isOnline(*selected_vehicle_id_)) {
+      deselectVehicle();
+    }
+
+    // 车辆在线时每 20ms 生成并发送一次控制指令
+    if (selected_vehicle_id_ && command_generator_.hasInput() &&
         now - last_control_sent_ >= kControlInterval) {
-      sendControlUpdate(now);
+      const pb::ControlCommand command = command_generator_.generate(now);
+      if (sendControlCommand(*selected_vehicle_id_, command))
+        last_control_sent_ = now;
     }
 
     // 每 100ms 向 Web 推送完整车辆列表
@@ -155,9 +162,9 @@ void Cockpit::processWebMessage(const std::string &message) {
 // 从 evdev 完整帧更新输入状态并生成控制指令
 void Cockpit::receiveInputDevice() {
   // poll 发现 eventX 可读后，在这里取出完整帧并生成控制指令
-  for (const InputDeviceState &input : input_device_reader_.readAvailable()) {
+  for (const InputDeviceState &input : input_device_reader_.readStates()) {
     if (selected_vehicle_id_)
-      command_generator_.updateInput(input);
+      command_generator_.processInputState(input);
   }
 }
 
@@ -178,7 +185,7 @@ void Cockpit::deselectVehicle() {
     return;
 
   // 请求当前车辆退出远程模式
-  pb::RemoteDriveControlCommand exit_command;
+  pb::ControlCommand exit_command;
   exit_command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
   sendControlCommand(*selected_vehicle_id_, exit_command);
 
@@ -188,19 +195,9 @@ void Cockpit::deselectVehicle() {
   last_control_sent_ = {};
 }
 
-// 生成并发送一帧控制指令
-void Cockpit::sendControlUpdate(Clock::time_point now) {
-  const std::string &vehicle_id = *selected_vehicle_id_;
-  const pb::RemoteDriveControlCommand command =
-      command_generator_.generate(now);
-
-  if (sendControlCommand(vehicle_id, command))
-    last_control_sent_ = now;
-}
-
 // 查找车辆端点并发送控制指令
 bool Cockpit::sendControlCommand(const std::string &vehicle_id,
-                                 pb::RemoteDriveControlCommand command) {
+                                 pb::ControlCommand command) {
   const auto vehicle_address = state_cache_.vehicleAddress(vehicle_id);
   if (!vehicle_address)
     return false;

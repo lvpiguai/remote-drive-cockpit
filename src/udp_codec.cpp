@@ -24,7 +24,7 @@ bool validSwitch(pb::SwitchCommand command) {
 }
 
 // 校验控制指令字段
-bool validControlCommand(const pb::RemoteDriveControlCommand &command) {
+bool validControlCommand(const pb::ControlCommand &command) {
   return validId(command.cockpit_id(), true) &&
          std::isfinite(command.steering_angle()) &&
          std::isfinite(command.accelerator_percent()) &&
@@ -58,7 +58,7 @@ bool validControlCommand(const pb::RemoteDriveControlCommand &command) {
 }
 
 // 校验车辆状态字段
-bool validDrivingState(const pb::ChassisState &state) {
+bool validChassisState(const pb::ChassisState &state) {
   return validId(state.vehicle_id(), true) &&
          validId(state.controller_id(), false) &&
          std::isfinite(state.steering_angle()) &&
@@ -67,46 +67,33 @@ bool validDrivingState(const pb::ChassisState &state) {
          pb::Gear_IsValid(state.gear()) && pb::Bucket_IsValid(state.bucket());
 }
 
+// 根据包体类型校验对应字段
 bool validBody(const pb::UdpPacket &packet) {
   switch (packet.body_case()) {
-  case pb::UdpPacket::kControl:
-    return validControlCommand(packet.control());
-  case pb::UdpPacket::kState:
-    return validDrivingState(packet.state());
-  case pb::UdpPacket::BODY_NOT_SET:
-    return false;
+    case pb::UdpPacket::kControl:
+      return validControlCommand(packet.control());
+    case pb::UdpPacket::kState:
+      return validChassisState(packet.state());
+    case pb::UdpPacket::BODY_NOT_SET:
+      return false;
   }
   return false;
 }
 
-void fillEnvelope(pb::UdpPacket &packet, std::uint32_t sequence) {
-  packet.set_magic(kMagic);
-  packet.set_sequence(sequence);
-}
-
-PacketBytes serialize(const pb::UdpPacket &packet) {
-  std::string bytes;
-  if (!packet.SerializeToString(&bytes))
-    return {};
-  return PacketBytes(bytes.begin(), bytes.end());
-}
-
 } // namespace
 
-PacketBytes encodeControlCommand(const pb::RemoteDriveControlCommand &command,
+PacketBytes encodeControlCommand(const pb::ControlCommand &command,
                                  std::uint32_t sequence) {
-  pb::UdpPacket packet;
-  fillEnvelope(packet, sequence);
-  packet.mutable_control()->CopyFrom(command);
-  return serialize(packet);
-}
+  if (!validControlCommand(command)) return {};
 
-PacketBytes encodeDrivingState(const pb::ChassisState &state,
-                               std::uint32_t sequence) {
   pb::UdpPacket packet;
-  fillEnvelope(packet, sequence);
-  packet.mutable_state()->CopyFrom(state);
-  return serialize(packet);
+  packet.set_magic(kMagic);
+  packet.set_sequence(sequence);
+  packet.mutable_control()->CopyFrom(command);
+
+  std::string bytes;
+  if (!packet.SerializeToString(&bytes)) return {};
+  return {bytes.begin(), bytes.end()};
 }
 
 std::optional<pb::UdpPacket> decodePacket(const std::uint8_t *data,

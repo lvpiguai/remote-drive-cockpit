@@ -12,7 +12,7 @@ constexpr double kGearShiftBrakeThreshold = 0.20;
 constexpr double kGearShiftMaxSpeed = 0.5;
 constexpr double kParkingClutchThreshold = 0.20;
 constexpr double kEmergencyBrakeThreshold = 0.20;
-constexpr auto kHoldDuration = std::chrono::milliseconds(1000);
+constexpr auto kHoldDuration = std::chrono::milliseconds(500);
 constexpr auto kRemoteRotationTimeout = std::chrono::milliseconds(5000);
 constexpr int kRemoteRotationThreshold = 12;
 
@@ -69,8 +69,8 @@ ControlCommandGenerator::ControlCommandGenerator() {
   actual_state_.set_parking(true);
 }
 
-// 消费新输入并更新边沿和按住状态
-void ControlCommandGenerator::updateInput(
+// 处理最新输入状态，更新控制指令、按键边沿和累计状态
+void ControlCommandGenerator::processInputState(
     const InputDeviceState &state, Clock::time_point now) {
   previous_ = current_;
   current_ = state;
@@ -81,52 +81,55 @@ void ControlCommandGenerator::updateInput(
   updateToggleControls();
   updateRemoteModeRequest(now);
 
-  // 记录或清理驻车长按状态
+  // 输入发生变化时立即刷新持续型控制和铲斗状态
+  updateContinuousControls();
+  updateBucket();
+
+  // 驻车组合条件从不成立变为成立时开始计时，松开后清除计时
+  const bool previous_parking_combo =
+      previous_.clutch_pedal > kParkingClutchThreshold &&
+      previous_.l1_pressed && !previous_.r1_pressed;
   const bool parking_combo =
       current_.clutch_pedal > kParkingClutchThreshold &&
       current_.l1_pressed && !current_.r1_pressed;
   if (!parking_combo) {
-    parking_holding_ = false;
-    parking_action_done_ = false;
-  } else if (!parking_holding_) {
-    parking_holding_ = true;
+    parking_hold_start_.reset();
+  } else if (!previous_parking_combo) {
     parking_hold_start_ = now;
   }
 
-  // 记录或清理急停长按状态
+  // 急停组合条件从不成立变为成立时开始计时，松开后清除计时
+  const bool previous_emergency_combo =
+      previous_.brake_pedal > kEmergencyBrakeThreshold &&
+      previous_.r1_pressed;
   const bool emergency_combo =
       current_.brake_pedal > kEmergencyBrakeThreshold &&
       current_.r1_pressed;
   if (!emergency_combo) {
-    emergency_holding_ = false;
-    emergency_action_done_ = false;
-  } else if (!emergency_holding_) {
-    emergency_holding_ = true;
+    emergency_hold_start_.reset();
+  } else if (!previous_emergency_combo) {
     emergency_hold_start_ = now;
   }
 }
 
-// 基于最新输入和当前时间生成待发送指令
-pb::RemoteDriveControlCommand
+// 结算长按等时间状态并返回最新控制指令
+pb::ControlCommand
 ControlCommandGenerator::generate(Clock::time_point now) {
   if (!has_input_)
     return command_;
 
-  updateContinuousControls();
-  updateBucket();
-
-  // 一次按住只能触发一次驻车或急停切换
-  if (parking_holding_ && !parking_action_done_ &&
-      now - parking_hold_start_ >= kHoldDuration) {
+  // 超时触发后清空开始时间，保持按住不会再次产生上升沿
+  if (parking_hold_start_ &&
+      now - *parking_hold_start_ >= kHoldDuration) {
     command_.set_parking(
         toggleSwitch(command_.parking(), actual_state_.parking()));
-    parking_action_done_ = true;
+    parking_hold_start_.reset();
   }
-  if (emergency_holding_ && !emergency_action_done_ &&
-      now - emergency_hold_start_ >= kHoldDuration) {
+  if (emergency_hold_start_ &&
+      now - *emergency_hold_start_ >= kHoldDuration) {
     command_.set_remote_emergency(
         toggleSwitch(command_.remote_emergency(), actual_state_.emergency()));
-    emergency_action_done_ = true;
+    emergency_hold_start_.reset();
   }
 
   return command_;
@@ -147,17 +150,14 @@ void ControlCommandGenerator::syncVehicleState(const pb::ChassisState &state) {
   if (enter_confirmed || exit_confirmed)
     command_.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_NONE);
 
-  // 开关命令被实车状态确认后恢复为不控制，避免覆盖其他控制端
+  // 锁存型开关被实车状态确认后恢复为不控制，避免覆盖其他控制端；
+  // 鸣笛、喷水和制动灯是输入持续型控制，始终保留当前输入对应的命令
   command_.set_parking(
       clearConfirmedSwitch(command_.parking(), state.parking()));
-  command_.set_horn(clearConfirmedSwitch(command_.horn(), state.horn()));
-  command_.set_spray(clearConfirmedSwitch(command_.spray(), state.spray()));
   command_.set_remote_emergency(clearConfirmedSwitch(
       command_.remote_emergency(), state.emergency()));
   command_.set_window_wiper(
       clearConfirmedSwitch(command_.window_wiper(), state.window_wiper()));
-  command_.set_light_brake(
-      clearConfirmedSwitch(command_.light_brake(), state.light_brake()));
   command_.set_light_position(clearConfirmedSwitch(
       command_.light_position(), state.light_position()));
   command_.set_light_near(
@@ -331,13 +331,9 @@ void ControlCommandGenerator::updateRemoteModeRequest(Clock::time_point now) {
 
 // 清除上一轮远控遗留的挡位、踏板和辅助开关
 void ControlCommandGenerator::resetCommandForRemoteEntry() {
-  command_ = pb::RemoteDriveControlCommand{};
-  parking_holding_ = false;
-  parking_action_done_ = false;
-  parking_hold_start_ = {};
-  emergency_holding_ = false;
-  emergency_action_done_ = false;
-  emergency_hold_start_ = {};
+  command_ = pb::ControlCommand{};
+  parking_hold_start_.reset();
+  emergency_hold_start_.reset();
 }
 
 // 清空旋钮序列状态

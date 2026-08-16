@@ -51,13 +51,10 @@ private:
   // 退出并清理当前车辆选择
   void deselectVehicle();
 
-  // 生成并发送一帧控制指令
-  void sendControlUpdate(Clock::time_point now);
-
   // 向指定车辆发送控制指令
   bool sendControlCommand(
       const std::string &vehicle_id,
-      remote_drive::protocol::RemoteDriveControlCommand command);
+      remote_drive::protocol::ControlCommand command);
 
   // 周期推送车辆在线状态
   void publishVehicleList(Clock::time_point now);
