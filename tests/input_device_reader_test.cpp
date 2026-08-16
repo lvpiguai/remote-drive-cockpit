@@ -22,12 +22,11 @@ bool near(double actual, double expected) {
 InputDeviceState processFrame(
     input_device::InputEventProcessor &processor,
     std::initializer_list<input_event> events) {
-  InputDeviceState state{};
-  for (const input_event &input : events) {
-    assert(!processor.consume(input, state));
-  }
-  assert(processor.consume(event(EV_SYN, SYN_REPORT, 0), state));
-  return state;
+  for (const input_event &input : events)
+    assert(!processor.consume(input));
+  const auto state = processor.consume(event(EV_SYN, SYN_REPORT, 0));
+  assert(state);
+  return *state;
 }
 
 }  // namespace
@@ -81,16 +80,18 @@ int main() {
   }
 
   // 验证零散事件只在 SYN_REPORT 时组成完整帧
-  assert(!processor.consume(event(EV_ABS, ABS_X, 32767), state));
-  assert(!processor.consume(event(EV_ABS, ABS_Y, 1100), state));
-  assert(!processor.consume(event(EV_ABS, ABS_Z, 600), state));
-  assert(!processor.consume(event(EV_ABS, ABS_RZ, 100), state));
-  assert(!processor.consume(event(EV_ABS, ABS_HAT0X, -1), state));
-  assert(!processor.consume(event(EV_ABS, ABS_HAT0Y, -1), state));
-  assert(!processor.consume(event(EV_KEY, BTN_JOYSTICK + 7, 1), state));
-  assert(!processor.consume(event(EV_KEY, BTN_GAMEPAD + 3, 1), state));
-  assert(!processor.consume(event(EV_KEY, BTN_GEAR_UP, 1), state));
-  assert(processor.consume(event(EV_SYN, SYN_REPORT, 0), state));
+  assert(!processor.consume(event(EV_ABS, ABS_X, 32767)));
+  assert(!processor.consume(event(EV_ABS, ABS_Y, 1100)));
+  assert(!processor.consume(event(EV_ABS, ABS_Z, 600)));
+  assert(!processor.consume(event(EV_ABS, ABS_RZ, 100)));
+  assert(!processor.consume(event(EV_ABS, ABS_HAT0X, -1)));
+  assert(!processor.consume(event(EV_ABS, ABS_HAT0Y, -1)));
+  assert(!processor.consume(event(EV_KEY, BTN_JOYSTICK + 7, 1)));
+  assert(!processor.consume(event(EV_KEY, BTN_GAMEPAD + 3, 1)));
+  assert(!processor.consume(event(EV_KEY, BTN_GEAR_UP, 1)));
+  auto completed = processor.consume(event(EV_SYN, SYN_REPORT, 0));
+  assert(completed);
+  state = *completed;
   assert(near(state.wheel, 0));
   assert(near(state.accelerator_pedal, 1));
   assert(near(state.brake_pedal, 0.5));
@@ -100,11 +101,13 @@ int main() {
   assert(state.pov == PovDirection::UP_LEFT);
 
   // 按键松开应直接清除语义状态，方向帽双轴回零后应恢复居中
-  assert(!processor.consume(event(EV_KEY, BTN_JOYSTICK + 7, 0), state));
-  assert(!processor.consume(event(EV_KEY, BTN_GAMEPAD + 3, 0), state));
-  assert(!processor.consume(event(EV_ABS, ABS_HAT0X, 0), state));
-  assert(!processor.consume(event(EV_ABS, ABS_HAT0Y, 0), state));
-  assert(processor.consume(event(EV_SYN, SYN_REPORT, 0), state));
+  assert(!processor.consume(event(EV_KEY, BTN_JOYSTICK + 7, 0)));
+  assert(!processor.consume(event(EV_KEY, BTN_GAMEPAD + 3, 0)));
+  assert(!processor.consume(event(EV_ABS, ABS_HAT0X, 0)));
+  assert(!processor.consume(event(EV_ABS, ABS_HAT0Y, 0)));
+  completed = processor.consume(event(EV_SYN, SYN_REPORT, 0));
+  assert(completed);
+  state = *completed;
   assert(!state.l2_pressed);
   assert(!state.plus_pressed);
   assert(state.pov == PovDirection::CENTER);

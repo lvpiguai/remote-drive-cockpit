@@ -51,9 +51,7 @@ int main() {
   assert(first_record->last_update_time >= before_update);
   assert(first_record->last_update_time <= after_update);
   assert(cache.record("truck_02"));
-  assert(cache.isFresh("truck_01"));
   assert(cache.isOnline("truck_01"));
-  assert(!cache.isFresh("missing"));
   assert(!cache.isOnline("missing"));
 
   const auto discovered = cache.vehicleStatusList();
@@ -78,8 +76,4 @@ int main() {
   assert(cache.update(first, 1, restarted_address));
   assert(cache.isOnline("truck_01"));
   assert(ntohs(cache.vehicleAddress("truck_01")->sin_port) == 7016);
-
-  // 超过状态有效期后，记录仍可查询但不再视为新鲜
-  std::this_thread::sleep_for(510ms);
-  assert(!cache.isFresh("truck_01"));
 }

@@ -10,7 +10,12 @@
 #include <vector>
 
 #include "remote_drive.pb.h"
-#include "vehicle_online_status.h"
+
+// 车辆在线状态
+struct VehicleOnlineStatus {
+  std::string id;       // 车辆 ID
+  bool online = false;  // 在线状态
+};
 
 // 单台车辆最近一次合法状态及其接收时间
 struct VehicleStateRecord {
@@ -34,9 +39,6 @@ public:
   // 查找指定车辆的最新状态记录
   const VehicleStateRecord *record(const std::string &vehicle_id) const;
 
-  // 判断指定车辆的状态记录是否仍在有效期内
-  bool isFresh(const std::string &vehicle_id) const;
-
   // 判断指定车辆是否仍在线
   bool isOnline(const std::string &vehicle_id) const;
 
@@ -48,8 +50,6 @@ public:
   std::vector<VehicleOnlineStatus> vehicleStatusList() const;
 
 private:
-  static constexpr auto kStateTimeout = std::chrono::milliseconds(500);
-
   Clock::duration online_timeout_;
   std::unordered_map<std::string, VehicleStateRecord> state_records_;
 };

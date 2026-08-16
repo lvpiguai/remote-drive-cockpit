@@ -48,17 +48,8 @@ VehicleStateCache::record(const std::string &vehicle_id) const {
                                                  : &state_iterator->second;
 }
 
-// 判断指定车辆的状态记录是否仍然新鲜
-bool VehicleStateCache::isFresh(const std::string &vehicle_id) const {
-  // 控制链路使用较短的状态超时
-  const auto *state_record = record(vehicle_id);
-  return state_record &&
-         Clock::now() - state_record->last_update_time < kStateTimeout;
-}
-
-// 在线状态使用较宽松的超时，避免偶发状态丢包导致页面闪断
+// 根据最后一次状态更新时间判断车辆是否在线
 bool VehicleStateCache::isOnline(const std::string &vehicle_id) const {
-  // 页面在线状态使用配置的宽松超时
   const auto *state_record = record(vehicle_id);
   return state_record &&
          Clock::now() - state_record->last_update_time < online_timeout_;

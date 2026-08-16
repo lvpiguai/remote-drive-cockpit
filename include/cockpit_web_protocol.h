@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "vehicle_online_status.h"
 #include "remote_drive.pb.h"
+#include "vehicle_state_cache.h"
 
 namespace web_protocol {
 
