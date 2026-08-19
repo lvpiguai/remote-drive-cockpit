@@ -34,15 +34,12 @@ int main() {
 
   // 初始状态全松开，第一帧按下可直接产生上升沿
   ControlCommandGenerator first_frame_generator;
-  assert(!first_frame_generator.hasInput());
   InputDeviceState first_frame_wiper;
   first_frame_wiper.l2_pressed = true;
   assert(is(applyInput(first_frame_generator, first_frame_wiper, start)
                 .window_wiper(),
             pb::SWITCH_ON));
-  assert(first_frame_generator.hasInput());
   first_frame_generator.reset();
-  assert(!first_frame_generator.hasInput());
 
   InputDeviceState axes;
   axes.wheel = -1;
@@ -67,7 +64,7 @@ int main() {
   generator.processInputState(drive, start + 3ms);
   assert(generator.generate(start + 3ms).gear() == pb::GEAR_DRIVE_1);
 
-  pb::ChassisState moving;
+  pb::VehicleState moving;
   moving.set_parking(true);
   moving.set_speed(1.0);
   generator.syncVehicleState(moving);
@@ -125,7 +122,7 @@ int main() {
                        start + 18ms)
                 .window_wiper(),
             pb::SWITCH_ON));
-  pb::ChassisState confirmed_state;
+  pb::VehicleState confirmed_state;
   confirmed_state.set_window_wiper(true);
   confirmation_generator.syncVehicleState(confirmed_state);
   assert(is(confirmation_generator.generate(start + 18ms).window_wiper(),
@@ -162,7 +159,7 @@ int main() {
   continuous_input.r2_pressed = true;
   continuous_input.pov = PovDirection::UP;
   continuous_generator.processInputState(continuous_input, start + 23ms);
-  pb::ChassisState continuous_state;
+  pb::VehicleState continuous_state;
   continuous_state.set_horn(true);
   continuous_state.set_spray(true);
   continuous_state.set_light_brake(true);

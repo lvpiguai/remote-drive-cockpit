@@ -4,9 +4,9 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <string>
 
 class WebSocketSession;
@@ -34,8 +34,8 @@ class WebSocketServer {
   // 取出一条页面消息
   std::optional<std::string> takeMessage();
 
-  // 发送文本消息
-  bool sendText(const std::string &payload);
+  // 发送一条消息
+  bool sendMessage(const std::string &message);
 
   // 关闭客户端
   void closeClient();
@@ -50,5 +50,5 @@ class WebSocketServer {
   boost::asio::io_context io_context_;                  // 异步事件循环
   boost::asio::ip::tcp::acceptor acceptor_;             // TCP 监听器
   std::shared_ptr<WebSocketSession> session_;           // 当前浏览器连接
-  std::deque<std::string> pending_web_messages_;        // 待处理页面消息
+  std::queue<std::string> received_messages_;           // 已接收待处理消息
 };

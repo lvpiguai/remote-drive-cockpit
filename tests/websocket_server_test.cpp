@@ -52,7 +52,7 @@ int main() {
     server.poll();
     while (auto message = server.takeMessage()) {
       received = *message == "select";
-      assert(server.sendText("accepted"));
+      assert(server.sendMessage("accepted"));
     }
     std::this_thread::sleep_for(1ms);
   }

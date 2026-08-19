@@ -20,7 +20,7 @@ VehicleStateCache::VehicleStateCache(Clock::duration online_timeout)
     : online_timeout_(online_timeout) {}
 
 // 状态包同时用于动态发现车辆和刷新在线时间
-bool VehicleStateCache::update(const pb::ChassisState &state,
+bool VehicleStateCache::update(const pb::VehicleState &state,
                                std::uint32_t sequence,
                                const sockaddr_in &vehicle_address) {
   // 查找车辆已有状态

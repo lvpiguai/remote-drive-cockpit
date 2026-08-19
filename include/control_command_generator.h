@@ -22,13 +22,10 @@ class ControlCommandGenerator {
   generate(Clock::time_point now = Clock::now());
 
   // 同步车辆实际状态
-  void syncVehicleState(const remote_drive::protocol::ChassisState &state);
+  void syncVehicleState(const remote_drive::protocol::VehicleState &state);
 
   // 清空全部映射状态
   void reset();
-
-  // 判断是否已经收到输入数据
-  bool hasInput() const { return has_input_; }
 
  private:
   // 判断按键上升沿
@@ -55,17 +52,15 @@ class ControlCommandGenerator {
   // 清空旋钮序列
   void resetRemoteRotation();
 
-  InputDeviceState current_{};
-  InputDeviceState previous_{};
+  InputDeviceState current_input_{};
+  InputDeviceState previous_input_{};
   remote_drive::protocol::ControlCommand command_{};
-  remote_drive::protocol::ChassisState actual_state_{};
-  bool has_input_ = false;
-  bool has_actual_state_ = false;
+  remote_drive::protocol::VehicleState vehicle_state_{};
 
   std::optional<Clock::time_point> parking_hold_start_;
   std::optional<Clock::time_point> emergency_hold_start_;
 
   int remote_cw_count_ = 0;
   int remote_ccw_count_ = 0;
-  Clock::time_point last_remote_rotation_{};
+  std::optional<Clock::time_point> last_remote_rotation_;
 };

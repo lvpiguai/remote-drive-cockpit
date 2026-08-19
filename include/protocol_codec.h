@@ -8,7 +8,7 @@
 
 #include "remote_drive.pb.h"
 
-namespace udp_codec {
+namespace protocol_codec {
 
 using PacketBytes = std::vector<std::uint8_t>;
 
@@ -18,7 +18,7 @@ PacketBytes encodeControlCommand(
     std::uint32_t sequence);
 
 // 从 UDP 负载解码并校验一个协议包
-std::optional<remote_drive::protocol::UdpPacket>
+std::optional<remote_drive::protocol::ProtocolPacket>
 decodePacket(const std::uint8_t *data, std::size_t size);
 
-} // namespace udp_codec
+} // namespace protocol_codec

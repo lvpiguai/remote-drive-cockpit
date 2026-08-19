@@ -1,10 +1,10 @@
-#include "udp_codec.h"
+#include "protocol_codec.h"
 
 #include <cmath>
 #include <cstddef>
 #include <string>
 
-namespace udp_codec {
+namespace protocol_codec {
 namespace {
 
 namespace pb = remote_drive::protocol;
@@ -58,7 +58,7 @@ bool validControlCommand(const pb::ControlCommand &command) {
 }
 
 // 校验车辆状态字段
-bool validChassisState(const pb::ChassisState &state) {
+bool validVehicleState(const pb::VehicleState &state) {
   return validId(state.vehicle_id(), true) &&
          validId(state.controller_id(), false) &&
          std::isfinite(state.steering_angle()) &&
@@ -68,13 +68,13 @@ bool validChassisState(const pb::ChassisState &state) {
 }
 
 // 根据包体类型校验对应字段
-bool validBody(const pb::UdpPacket &packet) {
+bool validBody(const pb::ProtocolPacket &packet) {
   switch (packet.body_case()) {
-    case pb::UdpPacket::kControl:
+    case pb::ProtocolPacket::kControl:
       return validControlCommand(packet.control());
-    case pb::UdpPacket::kState:
-      return validChassisState(packet.state());
-    case pb::UdpPacket::BODY_NOT_SET:
+    case pb::ProtocolPacket::kState:
+      return validVehicleState(packet.state());
+    case pb::ProtocolPacket::BODY_NOT_SET:
       return false;
   }
   return false;
@@ -86,7 +86,7 @@ PacketBytes encodeControlCommand(const pb::ControlCommand &command,
                                  std::uint32_t sequence) {
   if (!validControlCommand(command)) return {};
 
-  pb::UdpPacket packet;
+  pb::ProtocolPacket packet;
   packet.set_magic(kMagic);
   packet.set_sequence(sequence);
   packet.mutable_control()->CopyFrom(command);
@@ -96,12 +96,12 @@ PacketBytes encodeControlCommand(const pb::ControlCommand &command,
   return {bytes.begin(), bytes.end()};
 }
 
-std::optional<pb::UdpPacket> decodePacket(const std::uint8_t *data,
-                                          std::size_t size) {
+std::optional<pb::ProtocolPacket> decodePacket(const std::uint8_t *data,
+                                               std::size_t size) {
   if (!data || size == 0)
     return std::nullopt;
 
-  pb::UdpPacket packet;
+  pb::ProtocolPacket packet;
   if (!packet.ParseFromArray(data, static_cast<int>(size)) ||
       packet.magic() != kMagic || !validBody(packet)) {
     return std::nullopt;
@@ -109,4 +109,4 @@ std::optional<pb::UdpPacket> decodePacket(const std::uint8_t *data,
   return packet;
 }
 
-} // namespace udp_codec
+} // namespace protocol_codec

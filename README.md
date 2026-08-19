@@ -21,7 +21,7 @@ web/      # 驾驶舱 Web 页面
 
 ## 构建
 
-Ubuntu 需要安装 Boost.Beast 依赖：
+Ubuntu 需要安装 Boost 1.75 以上版本，提供 Boost.Beast 和 Boost.JSON：
 
 ```bash
 sudo apt install libboost-dev libboost-system-dev

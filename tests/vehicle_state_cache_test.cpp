@@ -10,8 +10,8 @@ namespace {
 namespace pb = remote_drive::protocol;
 
 // 构造带车辆标识和驾驶模式的最小状态快照
-pb::ChassisState state(const char *vehicle_id, pb::DriveMode mode) {
-  pb::ChassisState result;
+pb::VehicleState state(const char *vehicle_id, pb::DriveMode mode) {
+  pb::VehicleState result;
   result.set_vehicle_id(vehicle_id);
   result.set_drive_mode(mode);
   return result;

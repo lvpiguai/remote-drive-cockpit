@@ -11,8 +11,8 @@
 #include <utility>
 #include <vector>
 
-#include "cockpit_web_protocol.h"
-#include "udp_codec.h"
+#include "web_protocol.h"
+#include "protocol_codec.h"
 
 namespace {
 
@@ -86,7 +86,7 @@ int Cockpit::run() {
     }
 
     // 车辆在线时每 20ms 生成并发送一次控制指令
-    if (selected_vehicle_id_ && command_generator_.hasInput() &&
+    if (selected_vehicle_id_ &&
         now - last_control_sent_ >= kControlInterval) {
       const pb::ControlCommand command = command_generator_.generate(now);
       if (sendControlCommand(*selected_vehicle_id_, command))
@@ -124,19 +124,19 @@ bool Cockpit::initialize() {
 void Cockpit::receiveVehicleStates() {
   // 读取并解码所有待处理数据
   while (const auto datagram = udp_channel_.receive()) {
-    const auto packet = udp_codec::decodePacket(
+    const auto packet = protocol_codec::decodePacket(
         datagram->payload.data(), datagram->payload.size());
 
     // 忽略无效或非状态报文
-    if (!packet || packet->body_case() != pb::UdpPacket::kState)
+    if (!packet || packet->body_case() != pb::ProtocolPacket::kState)
       continue;
 
-    const pb::ChassisState &state = packet->state();
+    const pb::VehicleState &state = packet->state();
 
     // 保存合法状态并推送给 Web
     if (!state_cache_.update(state, packet->sequence(), datagram->source))
       continue;
-    web_server_.sendText(web_protocol::serializeVehicleState(state));
+    web_server_.sendMessage(web_protocol::serializeVehicleState(state));
 
     // 同步当前详情车辆的实际状态
     if (selected_vehicle_id_ && *selected_vehicle_id_ == state.vehicle_id()) {
@@ -147,15 +147,16 @@ void Cockpit::receiveVehicleStates() {
 
 // 处理一条 Web 页面消息
 void Cockpit::processWebMessage(const std::string &message) {
-  const web_protocol::Command command = web_protocol::parseCommand(message);
-  switch (command.type) {
+  const auto command = web_protocol::parseCommand(message);
+  if (!command)
+    return;
+
+  switch (command->type) {
   case web_protocol::CommandType::SELECT_VEHICLE:
-    selectVehicle(command.vehicle_id);
+    selectVehicle(command->vehicle_id);
     break;
   case web_protocol::CommandType::DESELECT_VEHICLE:
     deselectVehicle();
-    break;
-  case web_protocol::CommandType::UNKNOWN:
     break;
   }
 }
@@ -207,7 +208,7 @@ bool Cockpit::sendControlCommand(const std::string &vehicle_id,
 
   // 分配序号并编码控制指令
   const std::uint32_t sequence = next_control_sequence_++;
-  const auto packet = udp_codec::encodeControlCommand(command, sequence);
+  const auto packet = protocol_codec::encodeControlCommand(command, sequence);
 
   // 发送完整控制数据报
   if (!udp_channel_.send(*vehicle_address, packet.data(), packet.size())) {
@@ -220,6 +221,6 @@ bool Cockpit::sendControlCommand(const std::string &vehicle_id,
 // 将车辆在线状态推送给 Web 页面
 void Cockpit::publishVehicleList(Clock::time_point now) {
   auto vehicles = state_cache_.vehicleStatusList();
-  web_server_.sendText(web_protocol::serializeVehicleStatusList(vehicles));
+  web_server_.sendMessage(web_protocol::serializeVehicleStatusList(vehicles));
   last_vehicle_list_sent_ = now;
 }

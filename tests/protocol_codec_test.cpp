@@ -1,4 +1,4 @@
-#include "udp_codec.h"
+#include "protocol_codec.h"
 
 #include <cassert>
 #include <limits>
@@ -9,9 +9,9 @@ namespace {
 namespace pb = remote_drive::protocol;
 constexpr std::uint32_t kMagic = 0x52445550;
 
-udp_codec::PacketBytes statePacketBytes(const pb::ChassisState &state,
-                                        std::uint32_t sequence) {
-  pb::UdpPacket packet;
+protocol_codec::PacketBytes statePacketBytes(const pb::VehicleState &state,
+                                             std::uint32_t sequence) {
+  pb::ProtocolPacket packet;
   packet.set_magic(kMagic);
   packet.set_sequence(sequence);
   packet.mutable_state()->CopyFrom(state);
@@ -21,9 +21,9 @@ udp_codec::PacketBytes statePacketBytes(const pb::ChassisState &state,
   return {bytes.begin(), bytes.end()};
 }
 
-bool decodesState(const pb::ChassisState &state) {
+bool decodesState(const pb::VehicleState &state) {
   const auto bytes = statePacketBytes(state, 7);
-  return udp_codec::decodePacket(bytes.data(), bytes.size()).has_value();
+  return protocol_codec::decodePacket(bytes.data(), bytes.size()).has_value();
 }
 
 void testControlEncoding() {
@@ -34,28 +34,28 @@ void testControlEncoding() {
   command.set_brake_percent(2);
   command.set_gear(pb::GEAR_DRIVE_1);
 
-  const auto bytes = udp_codec::encodeControlCommand(command, 42);
+  const auto bytes = protocol_codec::encodeControlCommand(command, 42);
   assert(!bytes.empty());
 
-  pb::UdpPacket packet;
+  pb::ProtocolPacket packet;
   assert(packet.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
   assert(packet.magic() == kMagic);
   assert(packet.sequence() == 42);
-  assert(packet.body_case() == pb::UdpPacket::kControl);
+  assert(packet.body_case() == pb::ProtocolPacket::kControl);
   assert(packet.control().cockpit_id() == "cockpit_01");
   assert(packet.control().steering_angle() == -12.5);
-  assert(udp_codec::decodePacket(bytes.data(), bytes.size()));
+  assert(protocol_codec::decodePacket(bytes.data(), bytes.size()));
 
   command.clear_cockpit_id();
-  assert(udp_codec::encodeControlCommand(command, 43).empty());
+  assert(protocol_codec::encodeControlCommand(command, 43).empty());
 
   command.set_cockpit_id("cockpit_01");
   command.set_steering_angle(std::numeric_limits<double>::quiet_NaN());
-  assert(udp_codec::encodeControlCommand(command, 44).empty());
+  assert(protocol_codec::encodeControlCommand(command, 44).empty());
 }
 
 void testStateDecoding() {
-  pb::ChassisState state;
+  pb::VehicleState state;
   state.set_vehicle_id("truck_01");
   state.set_drive_mode(pb::DRIVE_MODE_STANDBY);
   assert(decodesState(state));

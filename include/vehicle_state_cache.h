@@ -19,7 +19,7 @@ struct VehicleOnlineStatus {
 
 // 单台车辆最近一次合法状态及其接收时间
 struct VehicleStateRecord {
-  remote_drive::protocol::ChassisState state{};
+  remote_drive::protocol::VehicleState state{};
   sockaddr_in vehicle_address{};
   std::uint32_t sequence = 0;
   std::chrono::steady_clock::time_point last_update_time{};
@@ -33,7 +33,7 @@ public:
   explicit VehicleStateCache(Clock::duration online_timeout);
 
   // 保存序号递增且来源可信的车辆状态
-  bool update(const remote_drive::protocol::ChassisState &state,
+  bool update(const remote_drive::protocol::VehicleState &state,
               std::uint32_t sequence, const sockaddr_in &vehicle_address);
 
   // 查找指定车辆的最新状态记录

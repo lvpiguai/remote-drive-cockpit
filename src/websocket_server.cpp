@@ -52,13 +52,13 @@ public:
     });
   }
 
-  // 文本入队等待发送
-  bool sendText(std::string payload) {
+  // 消息入队等待发送
+  bool sendMessage(std::string message) {
     if (!connected_)
       return false;
 
     // 队列空闲时立即启动写入
-    write_queue_.push_back(std::move(payload));
+    write_queue_.push_back(std::move(message));
     if (write_queue_.size() == 1)
       writeNext();
     return true;
@@ -176,17 +176,17 @@ void WebSocketServer::poll() {
 
 // 取出已缓存的页面消息
 std::optional<std::string> WebSocketServer::takeMessage() {
-  if (pending_web_messages_.empty())
+  if (received_messages_.empty())
     return std::nullopt;
 
-  std::string message = std::move(pending_web_messages_.front());
-  pending_web_messages_.pop_front();
+  std::string message = std::move(received_messages_.front());
+  received_messages_.pop();
   return message;
 }
 
-// 向当前浏览器连接发送文本
-bool WebSocketServer::sendText(const std::string &payload) {
-  return session_ && session_->sendText(payload);
+// 向当前浏览器连接发送消息
+bool WebSocketServer::sendMessage(const std::string &message) {
+  return session_ && session_->sendMessage(message);
 }
 
 // 主动关闭当前浏览器连接
@@ -196,7 +196,7 @@ void WebSocketServer::closeClient() {
 
   // 清空连接状态
   session_.reset();
-  pending_web_messages_.clear();
+  received_messages_ = {};
 }
 
 // 判断当前浏览器连接是否可用
@@ -214,7 +214,7 @@ void WebSocketServer::acceptNext() {
       // 页面消息先入队
       session_ = std::make_shared<WebSocketSession>(
           std::move(socket), [this](std::string message) {
-            pending_web_messages_.push_back(std::move(message));
+            received_messages_.push(std::move(message));
           });
       session_->start();
     }
