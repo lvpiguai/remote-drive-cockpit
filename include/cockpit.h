@@ -33,7 +33,7 @@ public:
 private:
   using Clock = std::chrono::steady_clock;
 
-  // 初始化通信
+  // 初始化输入设备和通信资源
   bool initialize();
 
   // 接收车辆状态
@@ -66,6 +66,7 @@ private:
   VehicleStateCache state_cache_;                  // 状态及在线缓存
   std::optional<std::string> selected_vehicle_id_; // 当前选择车辆
   std::string cockpit_id_;                         // 驾驶舱实例 ID
+  std::string input_device_path_;                   // 输入设备路径
   std::uint16_t vehicle_udp_port_;                 // 车辆通信端口
   std::uint16_t websocket_port_;                   // Web 控制页端口
   Clock::time_point last_control_sent_{};          // 控制发送时间

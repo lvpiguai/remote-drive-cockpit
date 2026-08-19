@@ -28,9 +28,10 @@ constexpr int kPollTimeoutMs = 20;
 // 创建驾驶舱并注册输入设备和本地通信端口
 Cockpit::Cockpit(std::string cockpit_id, std::string input_device_path,
                  std::uint16_t vehicle_udp_port, std::uint16_t websocket_port)
-    : input_device_reader_(input_device_path),
-      state_cache_(kVehicleOnlineTimeout),
-      cockpit_id_(std::move(cockpit_id)), vehicle_udp_port_(vehicle_udp_port),
+    : state_cache_(kVehicleOnlineTimeout),
+      cockpit_id_(std::move(cockpit_id)),
+      input_device_path_(std::move(input_device_path)),
+      vehicle_udp_port_(vehicle_udp_port),
       websocket_port_(websocket_port) {}
 
 // 初始化资源并持续运行驾驶舱事件循环
@@ -99,10 +100,10 @@ int Cockpit::run() {
   }
 }
 
-// 初始化 WebSocket 监听和 UDP 通信端点
+// 初始化输入设备、WebSocket 监听和 UDP 通信端点
 bool Cockpit::initialize() {
-  // 构造时已尝试打开输入设备，这里检查打开结果
-  if (input_device_reader_.fd() < 0) {
+  // 打开输入设备
+  if (!input_device_reader_.openDevice(input_device_path_)) {
     std::cerr << "打开输入设备失败：" << input_device_reader_.error() << '\n';
     return false;
   }

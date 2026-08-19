@@ -45,7 +45,6 @@ class InputEventProcessor {
 class InputDeviceReader {
  public:
   InputDeviceReader() = default;
-  explicit InputDeviceReader(const std::string &path);
   ~InputDeviceReader();
 
   InputDeviceReader(const InputDeviceReader &) = delete;

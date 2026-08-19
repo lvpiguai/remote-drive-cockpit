@@ -72,11 +72,6 @@ PovDirection InputEventProcessor::hatToDirection(std::int32_t x,
   return PovDirection::CENTER;
 }
 
-// 创建并打开指定的输入设备
-InputDeviceReader::InputDeviceReader(const std::string &path) {
-  openDevice(path);
-}
-
 // 保存各控制轴的原始范围，供后续事件归一化使用
 void InputEventProcessor::setAxisRange(std::uint16_t code, AxisRange range) {
   switch (code) {
