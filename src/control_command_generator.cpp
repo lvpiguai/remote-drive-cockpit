@@ -39,6 +39,11 @@ pb::SwitchCommand switchCommand(bool enabled) {
   return enabled ? pb::SWITCH_ON : pb::SWITCH_OFF;
 }
 
+// 将按住型输入转换为控制意图；松开表示当前控制源不参与
+pb::HoldCommand holdCommand(bool pressed) {
+  return pressed ? pb::HOLD_COMMAND_ON : pb::HOLD_COMMAND_NO_CONTROL;
+}
+
 // 计算三态指令对应的目标开关状态
 bool requestedState(pb::SwitchCommand command, bool actual_state) {
   if (command == pb::SWITCH_ON)
@@ -215,8 +220,8 @@ void ControlCommandGenerator::updateContinuousControls() {
   command_.set_steering_angle(current_input_.wheel * kMaxSteeringDegrees);
   command_.set_accelerator_percent(current_input_.accelerator_pedal * 100.0);
   command_.set_brake_percent(brake_percent);
-  command_.set_horn(switchCommand(povUp(current_input_.pov)));
-  command_.set_spray(switchCommand(current_input_.r2_pressed));
+  command_.set_horn(holdCommand(povUp(current_input_.pov)));
+  command_.set_spray(holdCommand(current_input_.r2_pressed));
   command_.set_light_brake(switchCommand(brake_percent > 0));
 }
 

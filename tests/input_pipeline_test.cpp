@@ -16,6 +16,10 @@ bool is(pb::SwitchCommand actual, pb::SwitchCommand expected) {
   return actual == expected;
 }
 
+bool is(pb::HoldCommand actual, pb::HoldCommand expected) {
+  return actual == expected;
+}
+
 pb::ControlCommand
 applyInput(ControlCommandGenerator &generator, const InputDeviceState &input,
            ControlCommandGenerator::Clock::time_point now) {
@@ -174,9 +178,17 @@ int main() {
   continuous_generator.syncVehicleState(continuous_state);
   const auto continuous_command =
       continuous_generator.generateCommand(start + 24ms);
-  assert(is(continuous_command.horn(), pb::SWITCH_ON));
-  assert(is(continuous_command.spray(), pb::SWITCH_ON));
+  assert(is(continuous_command.horn(), pb::HOLD_COMMAND_ON));
+  assert(is(continuous_command.spray(), pb::HOLD_COMMAND_ON));
   assert(is(continuous_command.light_brake(), pb::SWITCH_ON));
+
+  // 松开按住型控制后放弃控制权，而不是主动发送 OFF
+  continuous_input.r2_pressed = false;
+  continuous_input.pov = PovDirection::CENTER;
+  const auto released_command =
+      applyInput(continuous_generator, continuous_input, start + 25ms);
+  assert(is(released_command.horn(), pb::HOLD_COMMAND_NO_CONTROL));
+  assert(is(released_command.spray(), pb::HOLD_COMMAND_NO_CONTROL));
 
   InputDeviceState parking;
   parking.clutch_pedal = 0.22;
