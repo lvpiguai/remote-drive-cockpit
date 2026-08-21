@@ -1,6 +1,7 @@
 #include "vehicle_state_cache.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace {
 
@@ -16,26 +17,34 @@ bool sameAddress(const sockaddr_in &left, const sockaddr_in &right) {
 } // namespace
 
 // 保存车辆在线超时时间
-VehicleStateCache::VehicleStateCache(Clock::duration online_timeout)
-    : online_timeout_(online_timeout) {}
+VehicleStateCache::VehicleStateCache(Clock::duration online_timeout,
+                                     VehicleAddressMap vehicle_addresses)
+    : online_timeout_(online_timeout),
+      vehicle_addresses_(std::move(vehicle_addresses)) {}
 
-// 状态包同时用于动态发现车辆和刷新在线时间
+// 校验并保存已配置车辆的最新状态
 bool VehicleStateCache::update(const pb::VehicleState &state,
                                std::uint32_t sequence,
                                const sockaddr_in &vehicle_address) {
-  // 查找车辆已有状态
+  // 校验车辆标识和配置来源
   const std::string &vehicle_id = state.vehicle_id();
-  const auto previous = state_records_.find(vehicle_id);
-
-  // 在线期间拒绝来源变化和未递增序号
-  if (previous != state_records_.end() && isOnline(vehicle_id) &&
-      (!sameAddress(previous->second.vehicle_address, vehicle_address) ||
-       sequence <= previous->second.sequence)) {
+  const auto configured = vehicle_addresses_.find(vehicle_id);
+  if (configured == vehicle_addresses_.end() ||
+      !sameAddress(configured->second, vehicle_address)) {
     return false;
   }
 
-  // 覆盖状态并刷新来源地址和接收时间
-  state_records_[vehicle_id] = {state, vehicle_address, sequence, Clock::now()};
+  // 查找车辆已有状态
+  const auto previous = state_records_.find(vehicle_id);
+
+  // 在线期间拒绝未递增序号
+  if (previous != state_records_.end() && isOnline(vehicle_id) &&
+      sequence <= previous->second.sequence) {
+    return false;
+  }
+
+  // 覆盖状态并刷新接收时间
+  state_records_[vehicle_id] = {state, sequence, Clock::now()};
   return true;
 }
 
@@ -55,22 +64,28 @@ bool VehicleStateCache::isOnline(const std::string &vehicle_id) const {
          Clock::now() - state_record->last_update_time < online_timeout_;
 }
 
+// 获取当前控制驾驶舱 ID
+std::string
+VehicleStateCache::cockpitId(const std::string &vehicle_id) const {
+  const auto *state_record = record(vehicle_id);
+  return state_record ? state_record->state.cockpit_id() : std::string{};
+}
+
 std::optional<sockaddr_in>
 VehicleStateCache::vehicleAddress(const std::string &vehicle_id) const {
-  // 控制指令发送到最近一次状态包的来源端点
-  const auto *state_record = record(vehicle_id);
-  if (!state_record)
-    return std::nullopt;
-  return state_record->vehicle_address;
+  const auto address = vehicle_addresses_.find(vehicle_id);
+  return address == vehicle_addresses_.end()
+             ? std::nullopt
+             : std::optional<sockaddr_in>(address->second);
 }
 
 // 生成按车辆 ID 排序的在线状态列表
 std::vector<VehicleOnlineStatus> VehicleStateCache::vehicleStatusList() const {
-  // 从全部已发现车辆生成当前在线快照
+  // 从全部已配置车辆生成当前在线快照
   std::vector<VehicleOnlineStatus> result;
-  result.reserve(state_records_.size());
-  for (const auto &state_entry : state_records_) {
-    result.push_back({state_entry.first, isOnline(state_entry.first)});
+  result.reserve(vehicle_addresses_.size());
+  for (const auto &vehicle : vehicle_addresses_) {
+    result.push_back({vehicle.first, isOnline(vehicle.first)});
   }
 
   // 固定输出顺序，避免前端列表抖动

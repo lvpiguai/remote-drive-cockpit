@@ -31,20 +31,14 @@ const char *modeName(pb::DriveMode mode) {
 }
 
 // 挡位文本
-const char *gearName(pb::Gear gear) {
+const char *gearName(pb::GearState gear) {
   switch (gear) {
-  case pb::GEAR_NEUTRAL:
+  case pb::GEAR_STATE_NEUTRAL:
     return "N";
-  case pb::GEAR_REVERSE_1:
-    return "R1";
-  case pb::GEAR_REVERSE_2:
-    return "R2";
-  case pb::GEAR_DRIVE_1:
-    return "D1";
-  case pb::GEAR_DRIVE_2:
-    return "D2";
-  case pb::GEAR_DRIVE_3:
-    return "D3";
+  case pb::GEAR_STATE_REVERSE:
+    return "R";
+  case pb::GEAR_STATE_DRIVE:
+    return "D";
   default:
     break;
   }
@@ -52,13 +46,13 @@ const char *gearName(pb::Gear gear) {
 }
 
 // 铲斗状态文本
-const char *bucketName(pb::Bucket bucket) {
+const char *bucketName(pb::BucketState bucket) {
   switch (bucket) {
-  case pb::BUCKET_UP:
+  case pb::BUCKET_STATE_UP:
     return "UP";
-  case pb::BUCKET_DOWN:
+  case pb::BUCKET_STATE_DOWN:
     return "DOWN";
-  case pb::BUCKET_KEEP:
+  case pb::BUCKET_STATE_KEEP:
     return "KEEP";
   default:
     break;
@@ -104,7 +98,7 @@ std::string serializeVehicleState(const pb::VehicleState &state) {
   json::object message;
   message["type"] = "state";
   message["vehicle_id"] = state.vehicle_id();
-  message["controller_id"] = state.controller_id();
+  message["cockpit_id"] = state.cockpit_id();
   message["mode"] = modeName(state.drive_mode());
   message["steering"] = state.steering_angle();
   message["speed"] = state.speed();

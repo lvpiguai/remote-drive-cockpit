@@ -21,17 +21,18 @@ namespace pb = remote_drive::protocol;
 constexpr auto kVehicleOnlineTimeout = std::chrono::milliseconds(500);
 constexpr auto kVehicleListInterval = std::chrono::milliseconds(100);
 constexpr auto kControlInterval = std::chrono::milliseconds(20);
+constexpr std::uint16_t kCockpitUdpPort = 7005;
 constexpr int kPollTimeoutMs = 20;
 
 } // namespace
 
 // 创建驾驶舱并注册输入设备和本地通信端口
 Cockpit::Cockpit(std::string cockpit_id, std::string input_device_path,
-                 std::uint16_t vehicle_udp_port, std::uint16_t websocket_port)
-    : state_cache_(kVehicleOnlineTimeout),
+                 std::uint16_t websocket_port,
+                 VehicleAddressMap vehicle_addresses)
+    : state_cache_(kVehicleOnlineTimeout, std::move(vehicle_addresses)),
       cockpit_id_(std::move(cockpit_id)),
       input_device_path_(std::move(input_device_path)),
-      vehicle_udp_port_(vehicle_udp_port),
       websocket_port_(websocket_port) {}
 
 // 初始化资源并持续运行驾驶舱事件循环
@@ -87,14 +88,15 @@ int Cockpit::run() {
 
     // 车辆在线时每 20ms 生成并发送一次控制指令
     if (selected_vehicle_id_ &&
-        now - last_control_sent_ >= kControlInterval) {
-      const pb::ControlCommand command = command_generator_.generate(now);
+        now - last_control_send_time_ >= kControlInterval) {
+      const pb::ControlCommand command =
+          command_generator_.generateCommand(now);
       if (sendControlCommand(*selected_vehicle_id_, command))
-        last_control_sent_ = now;
+        last_control_send_time_ = now;
     }
 
     // 每 100ms 向 Web 推送完整车辆列表
-    if (now - last_vehicle_list_sent_ >= kVehicleListInterval) {
+    if (now - last_vehicle_list_send_time_ >= kVehicleListInterval) {
       publishVehicleList(now);
     }
   }
@@ -113,7 +115,7 @@ bool Cockpit::initialize() {
     return false;
 
   // 创建车辆通信端点
-  if (!udp_channel_.bindPort(vehicle_udp_port_)) {
+  if (!udp_channel_.bindPort(kCockpitUdpPort)) {
     perror("cockpit socket");
     return false;
   }
@@ -175,26 +177,27 @@ void Cockpit::selectVehicle(const std::string &vehicle_id) {
   // 记录当前详情车辆并清除旧指令
   selected_vehicle_id_ = vehicle_id;
   command_generator_.reset();
+  last_control_send_time_ = {};
 
   // 使用缓存的车辆状态初始化控制指令
   if (const auto *state_record = state_cache_.record(vehicle_id))
     command_generator_.syncVehicleState(state_record->state);
 }
 
-// 请求退出远程模式并清理当前选择
+// 退出当前车辆并清理选择
 void Cockpit::deselectVehicle() {
   if (!selected_vehicle_id_)
     return;
 
-  // 请求当前车辆退出远程模式
-  pb::ControlCommand exit_command;
-  exit_command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
-  sendControlCommand(*selected_vehicle_id_, exit_command);
+  const std::string vehicle_id = *selected_vehicle_id_;
+  if (state_cache_.cockpitId(vehicle_id) == cockpit_id_) {
+    sendControlCommand(vehicle_id,
+                       command_generator_.generateExitCommand());
+  }
 
-  // 清除详情车辆和控制状态
   selected_vehicle_id_.reset();
   command_generator_.reset();
-  last_control_sent_ = {};
+  last_control_send_time_ = {};
 }
 
 // 查找车辆端点并发送控制指令
@@ -222,5 +225,5 @@ bool Cockpit::sendControlCommand(const std::string &vehicle_id,
 void Cockpit::publishVehicleList(Clock::time_point now) {
   auto vehicles = state_cache_.vehicleStatusList();
   web_server_.sendMessage(web_protocol::serializeVehicleStatusList(vehicles));
-  last_vehicle_list_sent_ = now;
+  last_vehicle_list_send_time_ = now;
 }

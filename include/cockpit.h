@@ -17,9 +17,9 @@
 
 class Cockpit {
 public:
-  // 使用指定输入设备和本地通信端口创建驾驶舱
+  // 使用指定部署配置和输入设备创建驾驶舱
   Cockpit(std::string cockpit_id, std::string input_device_path,
-          std::uint16_t vehicle_udp_port, std::uint16_t websocket_port);
+          std::uint16_t websocket_port, VehicleAddressMap vehicle_addresses);
 
   // 禁止复制
   Cockpit(const Cockpit &) = delete;
@@ -48,7 +48,7 @@ private:
   // 选择页面指定的车辆
   void selectVehicle(const std::string &vehicle_id);
 
-  // 退出并清理当前车辆选择
+  // 清理当前车辆选择
   void deselectVehicle();
 
   // 向指定车辆发送控制指令
@@ -67,9 +67,8 @@ private:
   std::optional<std::string> selected_vehicle_id_; // 当前选择车辆
   std::string cockpit_id_;                         // 驾驶舱实例 ID
   std::string input_device_path_;                   // 输入设备路径
-  std::uint16_t vehicle_udp_port_;                 // 车辆通信端口
   std::uint16_t websocket_port_;                   // Web 控制页端口
-  Clock::time_point last_control_sent_{};          // 控制发送时间
-  Clock::time_point last_vehicle_list_sent_{};     // 列表推送时间
+  Clock::time_point last_control_send_time_{};      // 控制发送时间
+  Clock::time_point last_vehicle_list_send_time_{}; // 列表推送时间
   std::uint32_t next_control_sequence_ = 1;         // 下一控制指令序号
 };

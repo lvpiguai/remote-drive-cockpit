@@ -36,10 +36,11 @@ ctest --test-dir build --output-on-failure
 ## 运行
 
 ```bash
-./build/cockpit --cockpit-id cockpit_01 \
-  --vehicle-udp-port 7005 --websocket-port 8765 \
+./build/cockpit --config conf/cockpit.pb.txt.example \
+  --websocket-port 8765 \
   /dev/input/eventX
 ```
 
-Web 页面位于 `web/`，用于车辆选择和状态展示。驾驶舱通过车辆状态动态发现车号
-和车辆 UDP 地址，控制输入来自驾驶舱进程读取到的真实 Linux 输入设备。
+Web 页面位于 `web/`，用于车辆选择和状态展示。驾驶舱从配置加载自身 ID 和允许通信的
+车辆 ID、IP 映射，并根据状态包判断车辆是否在线。驾驶舱 UDP 端口固定为 `7005`，
+车辆 UDP 端口固定为 `7006`。控制输入来自真实 Linux 输入设备。

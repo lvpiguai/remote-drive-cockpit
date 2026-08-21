@@ -20,17 +20,19 @@ struct VehicleOnlineStatus {
 // 单台车辆最近一次合法状态及其接收时间
 struct VehicleStateRecord {
   remote_drive::protocol::VehicleState state{};
-  sockaddr_in vehicle_address{};
   std::uint32_t sequence = 0;
   std::chrono::steady_clock::time_point last_update_time{};
 };
+
+using VehicleAddressMap = std::unordered_map<std::string, sockaddr_in>;
 
 // 按车辆保存最新状态、通信地址和在线时间
 class VehicleStateCache {
 public:
   using Clock = std::chrono::steady_clock;
 
-  explicit VehicleStateCache(Clock::duration online_timeout);
+  VehicleStateCache(Clock::duration online_timeout,
+                    VehicleAddressMap vehicle_addresses);
 
   // 保存序号递增且来源可信的车辆状态
   bool update(const remote_drive::protocol::VehicleState &state,
@@ -42,7 +44,10 @@ public:
   // 判断指定车辆是否仍在线
   bool isOnline(const std::string &vehicle_id) const;
 
-  // 获取车辆最近一次状态包的来源地址
+  // 获取当前控制驾驶舱 ID
+  std::string cockpitId(const std::string &vehicle_id) const;
+
+  // 获取配置的车辆通信地址
   std::optional<sockaddr_in> vehicleAddress(
       const std::string &vehicle_id) const;
 
@@ -51,5 +56,6 @@ public:
 
 private:
   Clock::duration online_timeout_;
+  VehicleAddressMap vehicle_addresses_;
   std::unordered_map<std::string, VehicleStateRecord> state_records_;
 };

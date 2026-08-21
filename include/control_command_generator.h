@@ -19,7 +19,10 @@ class ControlCommandGenerator {
 
   // 结算长按等时间状态并返回最新控制指令
   remote_drive::protocol::ControlCommand
-  generate(Clock::time_point now = Clock::now());
+  generateCommand(Clock::time_point now = Clock::now());
+
+  // 生成退出远控指令
+  remote_drive::protocol::ControlCommand generateExitCommand() const;
 
   // 同步车辆实际状态
   void syncVehicleState(const remote_drive::protocol::VehicleState &state);

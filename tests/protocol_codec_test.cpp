@@ -32,7 +32,7 @@ void testControlEncoding() {
   command.set_steering_angle(-12.5);
   command.set_accelerator_percent(35);
   command.set_brake_percent(2);
-  command.set_gear(pb::GEAR_DRIVE_1);
+  command.set_gear(pb::GEAR_COMMAND_DRIVE);
 
   const auto bytes = protocol_codec::encodeControlCommand(command, 42);
   assert(!bytes.empty());

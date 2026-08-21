@@ -20,7 +20,7 @@ pb::ControlCommand
 applyInput(ControlCommandGenerator &generator, const InputDeviceState &input,
            ControlCommandGenerator::Clock::time_point now) {
   generator.processInputState(input, now);
-  return generator.generate(now);
+  return generator.generateCommand(now);
 }
 
 }  // namespace
@@ -56,13 +56,14 @@ int main() {
   InputDeviceState drive;
   drive.l3_pressed = true;
   auto command = applyInput(generator, drive, start + 1ms);
-  assert(command.gear() == pb::GEAR_NEUTRAL);
+  assert(command.gear() == pb::GEAR_COMMAND_NO_CONTROL);
   drive.brake_pedal = 0.22;
   command = applyInput(generator, drive, start + 2ms);
-  assert(command.gear() == pb::GEAR_DRIVE_1);
+  assert(command.gear() == pb::GEAR_COMMAND_DRIVE);
   drive.l3_pressed = false;
   generator.processInputState(drive, start + 3ms);
-  assert(generator.generate(start + 3ms).gear() == pb::GEAR_DRIVE_1);
+  assert(generator.generateCommand(start + 3ms).gear() ==
+         pb::GEAR_COMMAND_DRIVE);
 
   pb::VehicleState moving;
   moving.set_parking(true);
@@ -70,11 +71,14 @@ int main() {
   generator.syncVehicleState(moving);
   drive.select_pressed = true;
   command = applyInput(generator, drive, start + 4ms);
-  assert(command.gear() == pb::GEAR_DRIVE_1);
+  assert(command.gear() == pb::GEAR_COMMAND_DRIVE);
   moving.set_speed(0.5);
   generator.syncVehicleState(moving);
   command = applyInput(generator, drive, start + 5ms);
-  assert(command.gear() == pb::GEAR_NEUTRAL);
+  assert(command.gear() == pb::GEAR_COMMAND_NEUTRAL);
+  generator.syncVehicleState(moving);
+  assert(generator.generateCommand(start + 5ms).gear() ==
+         pb::GEAR_COMMAND_NO_CONTROL);
 
   InputDeviceState wiper;
   generator.processInputState(wiper, start + 6ms);
@@ -93,24 +97,28 @@ int main() {
   InputDeviceState bucket;
   bucket.plus_pressed = true;
   assert(applyInput(generator, bucket, start + 11ms).bucket() ==
-         pb::BUCKET_UP);
+         pb::BUCKET_COMMAND_UP);
   bucket.plus_pressed = false;
   bucket.minus_pressed = true;
   assert(applyInput(generator, bucket, start + 12ms).bucket() ==
-         pb::BUCKET_DOWN);
+         pb::BUCKET_COMMAND_DOWN);
   bucket.plus_pressed = true;
   assert(applyInput(generator, bucket, start + 13ms).bucket() ==
-         pb::BUCKET_KEEP);
+         pb::BUCKET_COMMAND_NO_CONTROL);
+  bucket.plus_pressed = false;
+  bucket.minus_pressed = false;
+  assert(applyInput(generator, bucket, start + 14ms).bucket() ==
+         pb::BUCKET_COMMAND_NO_CONTROL);
 
   // Square 切换雾灯，Start 切换差速锁
   InputDeviceState switches;
   switches.square_pressed = true;
-  assert(is(applyInput(generator, switches, start + 14ms).light_fog(),
+  assert(is(applyInput(generator, switches, start + 15ms).light_fog(),
             pb::SWITCH_ON));
   switches.square_pressed = false;
-  generator.processInputState(switches, start + 15ms);
+  generator.processInputState(switches, start + 16ms);
   switches.start_pressed = true;
-  assert(is(applyInput(generator, switches, start + 16ms).diff_lock(),
+  assert(is(applyInput(generator, switches, start + 17ms).diff_lock(),
             pb::SWITCH_ON));
 
   // 开关命令由实车状态确认后恢复 NO_CTL，外部状态变化不会被重复覆盖
@@ -125,11 +133,11 @@ int main() {
   pb::VehicleState confirmed_state;
   confirmed_state.set_window_wiper(true);
   confirmation_generator.syncVehicleState(confirmed_state);
-  assert(is(confirmation_generator.generate(start + 18ms).window_wiper(),
+  assert(is(confirmation_generator.generateCommand(start + 18ms).window_wiper(),
             pb::SWITCH_NO_CONTROL));
   confirmed_state.set_window_wiper(false);
   confirmation_generator.syncVehicleState(confirmed_state);
-  assert(is(confirmation_generator.generate(start + 18ms).window_wiper(),
+  assert(is(confirmation_generator.generateCommand(start + 18ms).window_wiper(),
             pb::SWITCH_NO_CONTROL));
   confirmation_input.l2_pressed = false;
   confirmation_generator.processInputState(confirmation_input, start + 19ms);
@@ -149,7 +157,7 @@ int main() {
             pb::SWITCH_OFF));
   confirmed_state.set_window_wiper(false);
   confirmation_generator.syncVehicleState(confirmed_state);
-  assert(is(confirmation_generator.generate(start + 22ms).window_wiper(),
+  assert(is(confirmation_generator.generateCommand(start + 22ms).window_wiper(),
             pb::SWITCH_NO_CONTROL));
 
   // 持续型输入被车辆确认后仍应保留，直到收到新的输入状态
@@ -164,7 +172,8 @@ int main() {
   continuous_state.set_spray(true);
   continuous_state.set_light_brake(true);
   continuous_generator.syncVehicleState(continuous_state);
-  const auto continuous_command = continuous_generator.generate(start + 24ms);
+  const auto continuous_command =
+      continuous_generator.generateCommand(start + 24ms);
   assert(is(continuous_command.horn(), pb::SWITCH_ON));
   assert(is(continuous_command.spray(), pb::SWITCH_ON));
   assert(is(continuous_command.light_brake(), pb::SWITCH_ON));
@@ -175,18 +184,20 @@ int main() {
   generator.processInputState(parking, start + 20ms);
   parking.wheel = 0.5;
   generator.processInputState(parking, start + 300ms);
-  assert(is(generator.generate(start + 519ms).parking(),
+  assert(is(generator.generateCommand(start + 519ms).parking(),
             pb::SWITCH_NO_CONTROL));
-  assert(is(generator.generate(start + 520ms).parking(), pb::SWITCH_OFF));
-  assert(is(generator.generate(start + 2s).parking(), pb::SWITCH_OFF));
+  assert(is(generator.generateCommand(start + 520ms).parking(),
+            pb::SWITCH_OFF));
+  assert(is(generator.generateCommand(start + 2s).parking(),
+            pb::SWITCH_OFF));
 
   InputDeviceState emergency;
   emergency.brake_pedal = 0.22;
   emergency.r1_pressed = true;
   generator.processInputState(emergency, start + 4s);
-  assert(is(generator.generate(start + 4499ms).remote_emergency(),
+  assert(is(generator.generateCommand(start + 4499ms).remote_emergency(),
             pb::SWITCH_NO_CONTROL));
-  assert(is(generator.generate(start + 4500ms).remote_emergency(),
+  assert(is(generator.generateCommand(start + 4500ms).remote_emergency(),
             pb::SWITCH_ON));
 
   InputDeviceState encoder;
@@ -203,16 +214,21 @@ int main() {
   assert(near(enter_command.steering_angle(), 0));
   assert(near(enter_command.accelerator_percent(), 0));
   assert(near(enter_command.brake_percent(), 0));
-  assert(enter_command.gear() == pb::GEAR_NEUTRAL);
-  assert(enter_command.bucket() == pb::BUCKET_KEEP);
+  assert(enter_command.gear() == pb::GEAR_COMMAND_NO_CONTROL);
+  assert(enter_command.bucket() == pb::BUCKET_COMMAND_NO_CONTROL);
   assert(is(enter_command.parking(), pb::SWITCH_NO_CONTROL));
   assert(is(enter_command.remote_emergency(), pb::SWITCH_NO_CONTROL));
   assert(is(enter_command.light_fog(), pb::SWITCH_NO_CONTROL));
   assert(is(enter_command.diff_lock(), pb::SWITCH_NO_CONTROL));
 
+  const auto exit_command = generator.generateExitCommand();
+  assert(exit_command.remote_mode_request() == pb::REMOTE_MODE_REQUEST_EXIT);
+  assert(exit_command.gear() == pb::GEAR_COMMAND_NO_CONTROL);
+  assert(exit_command.bucket() == pb::BUCKET_COMMAND_NO_CONTROL);
+
   generator.reset();
-  const auto reset_command = generator.generate(start + 7s);
-  assert(reset_command.gear() == pb::GEAR_NEUTRAL);
+  const auto reset_command = generator.generateCommand(start + 7s);
+  assert(reset_command.gear() == pb::GEAR_COMMAND_NO_CONTROL);
   assert(is(reset_command.parking(), pb::SWITCH_NO_CONTROL));
   assert(reset_command.remote_mode_request() == pb::REMOTE_MODE_REQUEST_NONE);
 }

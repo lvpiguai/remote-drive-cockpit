@@ -1,0 +1,11 @@
+cockpit_id: "cockpit_01"
+
+vehicles {
+  vehicle_id: "truck_01"
+  ip: "192.168.10.31"
+}
+
+vehicles {
+  vehicle_id: "truck_02"
+  ip: "192.168.10.32"
+}

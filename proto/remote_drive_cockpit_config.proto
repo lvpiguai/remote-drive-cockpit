@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+package remote_drive.cockpit;
+
+// 一辆允许通信的车辆
+message ConfiguredVehicle {
+  required string vehicle_id = 1;
+  required string ip = 2;
+}
+
+// 驾驶舱运行时部署配置
+message RemoteDriveCockpitConfig {
+  required string cockpit_id = 1;
+  repeated ConfiguredVehicle vehicles = 2;
+}

@@ -63,6 +63,19 @@ pb::SwitchCommand clearConfirmedSwitch(pb::SwitchCommand command,
   return command;
 }
 
+// 实车挡位确认后清除待发送挡位指令
+pb::GearCommand clearConfirmedGear(pb::GearCommand command,
+                                   pb::GearState actual_gear) {
+  const bool confirmed =
+      (command == pb::GEAR_COMMAND_NEUTRAL &&
+       actual_gear == pb::GEAR_STATE_NEUTRAL) ||
+      (command == pb::GEAR_COMMAND_REVERSE &&
+       actual_gear == pb::GEAR_STATE_REVERSE) ||
+      (command == pb::GEAR_COMMAND_DRIVE &&
+       actual_gear == pb::GEAR_STATE_DRIVE);
+  return confirmed ? pb::GEAR_COMMAND_NO_CONTROL : command;
+}
+
 } // namespace
 
 ControlCommandGenerator::ControlCommandGenerator() {
@@ -113,7 +126,7 @@ void ControlCommandGenerator::processInputState(
 
 // 结算长按等时间状态并返回最新控制指令
 pb::ControlCommand
-ControlCommandGenerator::generate(Clock::time_point now) {
+ControlCommandGenerator::generateCommand(Clock::time_point now) {
   // 超时触发后清空开始时间，保持按住不会再次产生上升沿
   if (parking_hold_start_ &&
       now - *parking_hold_start_ >= kHoldDuration) {
@@ -131,6 +144,13 @@ ControlCommandGenerator::generate(Clock::time_point now) {
   return command_;
 }
 
+// 生成退出远控指令
+pb::ControlCommand ControlCommandGenerator::generateExitCommand() const {
+  pb::ControlCommand command;
+  command.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_EXIT);
+  return command;
+}
+
 // 保存车辆实际状态
 void ControlCommandGenerator::syncVehicleState(const pb::VehicleState &state) {
   vehicle_state_ = state;
@@ -144,6 +164,9 @@ void ControlCommandGenerator::syncVehicleState(const pb::VehicleState &state) {
       state.drive_mode() != pb::DRIVE_MODE_REMOTE;
   if (enter_confirmed || exit_confirmed)
     command_.set_remote_mode_request(pb::REMOTE_MODE_REQUEST_NONE);
+
+  // 挡位被实车状态确认后恢复为不控制，避免覆盖其他控制端
+  command_.set_gear(clearConfirmedGear(command_.gear(), state.gear()));
 
   // 锁存型开关被实车状态确认后恢复为不控制，避免覆盖其他控制端；
   // 鸣笛、喷水和制动灯是输入持续型控制，始终保留当前输入对应的命令
@@ -210,25 +233,27 @@ void ControlCommandGenerator::updateGear() {
   // 将组合按键映射为目标挡位
   if (current_input_.select_pressed ||
       (current_input_.l3_pressed && current_input_.r3_pressed)) {
-    command_.set_gear(pb::GEAR_NEUTRAL);
+    command_.set_gear(pb::GEAR_COMMAND_NEUTRAL);
   } else if (current_input_.l3_pressed) {
-    command_.set_gear(pb::GEAR_DRIVE_1);
+    command_.set_gear(pb::GEAR_COMMAND_DRIVE);
   } else if (current_input_.r3_pressed) {
-    command_.set_gear(pb::GEAR_REVERSE_1);
+    command_.set_gear(pb::GEAR_COMMAND_REVERSE);
+  } else {
+    return;
   }
   // 根据当前挡位联动倒车灯
   command_.set_light_reverse(
-      switchCommand(command_.gear() == pb::GEAR_REVERSE_1));
+      switchCommand(command_.gear() == pb::GEAR_COMMAND_REVERSE));
 }
 
 // 处理铲斗按钮状态
 void ControlCommandGenerator::updateBucket() {
   command_.set_bucket(
       current_input_.plus_pressed && !current_input_.minus_pressed
-          ? pb::BUCKET_UP
+          ? pb::BUCKET_COMMAND_UP
           : (!current_input_.plus_pressed && current_input_.minus_pressed
-                 ? pb::BUCKET_DOWN
-                 : pb::BUCKET_KEEP));
+                 ? pb::BUCKET_COMMAND_DOWN
+                 : pb::BUCKET_COMMAND_NO_CONTROL));
 }
 
 // 处理单次按下切换

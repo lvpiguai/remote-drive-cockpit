@@ -13,7 +13,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/remote_drive.proto)
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS
+    proto/remote_drive.proto
+    proto/remote_drive_cockpit_config.proto
+)
 
 add_library(cockpit_protocol
     ${PROTO_SRCS}

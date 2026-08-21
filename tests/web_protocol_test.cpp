@@ -53,20 +53,20 @@ int main() {
   // 状态快照完整展示车辆实际状态和当前控制驾驶舱
   pb::VehicleState state;
   state.set_vehicle_id("truck_01");
-  state.set_controller_id("cockpit_02");
+  state.set_cockpit_id("cockpit_02");
   state.set_drive_mode(pb::DRIVE_MODE_REMOTE);
   state.set_speed(4.5);
-  state.set_gear(pb::GEAR_REVERSE_1);
-  state.set_bucket(pb::BUCKET_DOWN);
+  state.set_gear(pb::GEAR_STATE_REVERSE);
+  state.set_bucket(pb::BUCKET_STATE_DOWN);
   state.set_emergency(true);
   const json::object state_message =
       json::parse(web_protocol::serializeVehicleState(state)).as_object();
   assert(state_message.at("type").as_string() == "state");
   assert(state_message.at("vehicle_id").as_string() == "truck_01");
-  assert(state_message.at("controller_id").as_string() == "cockpit_02");
+  assert(state_message.at("cockpit_id").as_string() == "cockpit_02");
   assert(state_message.at("mode").as_string() == "REMOTE");
   assert(state_message.at("speed").as_double() == 4.5);
-  assert(state_message.at("gear").as_string() == "R1");
+  assert(state_message.at("gear").as_string() == "R");
   assert(state_message.at("bucket").as_string() == "DOWN");
   assert(state_message.at("emergency").as_bool());
 }

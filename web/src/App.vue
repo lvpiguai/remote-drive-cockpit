@@ -284,7 +284,7 @@ onUnmounted(() => {
           <div v-if="stateSnapshot" class="telemetry-body">
             <div class="metric-grid">
               <div><span>驾驶模式</span><strong>{{ stateSnapshot.mode }}</strong></div>
-              <div><span>控制驾驶舱</span><strong>{{ stateSnapshot.controller_id || '空闲' }}</strong></div>
+              <div><span>控制驾驶舱</span><strong>{{ stateSnapshot.cockpit_id || '空闲' }}</strong></div>
               <div><span>实际转向</span><strong>{{ formatNumber(stateSnapshot.steering) }}°</strong></div>
               <div><span>实际速度</span><strong>{{ formatNumber(stateSnapshot.speed) }}</strong></div>
               <div><span>挡位</span><strong>{{ stateSnapshot.gear }}</strong></div>
